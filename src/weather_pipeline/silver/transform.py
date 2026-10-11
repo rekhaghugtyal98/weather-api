@@ -1,0 +1,108 @@
+"""Task 2: flatten, validate, quarantine and merge Bronze into Silver."""
+import logging
+import os
+from pyspark.sql import SparkSession, functions as F
+from ..common.config import table_name
+from ..common.notifications import send_failure_summary
+from ..common.utils import safe_identifier
+from ..common.schemas import API_RESPONSE_SCHEMA
+
+logger = logging.getLogger(__name__)
+
+def transform_silver(spark: SparkSession, run_id: str) -> None:
+    catalog = safe_identifier(os.getenv("WEATHER_CATALOG", "main"))
+    schema = safe_identifier(os.getenv("WEATHER_SCHEMA", "weather_pipeline"))
+    spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
+    bronze = spark.table(table_name("bronze")).where(F.col("run_id") == str(run_id))
+    if bronze.limit(1).count() == 0:
+        raise RuntimeError(f"No Bronze payloads found for run_id={run_id}")
+
+    parsed = bronze.withColumn("api", F.from_json("payload_json", API_RESPONSE_SCHEMA))
+    arrays = F.arrays_zip(
+        F.col("api.hourly.time").alias("time"),
+        F.col("api.hourly.temperature_2m").alias("temperature"),
+        F.col("api.hourly.relative_humidity_2m").alias("humidity"),
+        F.col("api.hourly.precipitation").alias("precipitation"),
+        F.col("api.hourly.wind_speed_10m").alias("wind"),
+    )
+    flat = parsed.withColumn("hour", F.explode_outer(arrays)).select(
+        "run_id", "location_id", "location_name",
+        F.col("hour.time").alias("forecast_time"),
+        F.col("hour.temperature").cast("double").alias("temperature_c"),
+        F.col("hour.humidity").cast("int").alias("humidity_pct"),
+        F.col("hour.precipitation").cast("double").alias("precipitation_mm"),
+        F.col("hour.wind").cast("double").alias("wind_speed_kmh"),
+        F.current_timestamp().cast("string").alias("ingested_at"),
+    )
+    valid_condition = (
+        F.col("forecast_time").isNotNull()
+        & F.col("temperature_c").between(-90, 65)
+        & F.col("humidity_pct").between(0, 100)
+        & (F.col("precipitation_mm") >= 0)
+        & (F.col("wind_speed_kmh") >= 0)
+    )
+    duplicate_keys = (flat.groupBy("location_id", "forecast_time").count()
+                      .where(F.col("count") > 1)
+                      .select("location_id", "forecast_time")
+                      .withColumn("is_duplicate", F.lit(True)))
+    checked = flat.join(duplicate_keys, ["location_id", "forecast_time"], "left")
+    is_duplicate = F.coalesce(F.col("is_duplicate"), F.lit(False))
+    valid = checked.where(valid_condition & ~is_duplicate).drop("is_duplicate")
+    invalid = (checked.where(~valid_condition | is_duplicate)
+        .withColumn(
+            "quarantine_reason",
+            F.when(~valid_condition, F.lit("Null or out-of-range hourly weather value"))
+             .otherwise(F.lit("Duplicate location_id and forecast_time")),
+        ).drop("is_duplicate"))
+
+    # Summarize invalid city/date coverage for notification, without failing if some good rows remain.
+    invalid_summary = []
+    if invalid.limit(1).count():
+        invalid_summary = [
+            f"{r['location_name']} on {r['forecast_date']}: {r['invalid_count']} invalid hourly record(s)"
+            for r in invalid.withColumn("forecast_date", F.to_date("forecast_time")) \
+                .groupBy("location_name", "forecast_date").count() \
+                .withColumnRenamed("count", "invalid_count").orderBy("location_name", "forecast_date").collect()
+        ]
+        invalid.write.format("delta").mode("append").option("mergeSchema", "true").saveAsTable(table_name("quarantine"))
+
+    if valid.limit(1).count() == 0:
+        body = (
+            f"No valid hourly weather records were produced. Silver task is failing.\nRun ID: {run_id}\n"
+            + ("\n".join(invalid_summary) if invalid_summary else "No valid rows found; inspect Bronze/API response.")
+        )
+        send_failure_summary("Open-Meteo pipeline FAILED: all records invalid", body)
+        raise RuntimeError(f"No valid hourly records produced for run_id={run_id}; stopping downstream tasks")
+
+    valid.createOrReplaceTempView("incoming_weather_silver")
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {table_name("silver")} (
+          run_id STRING, location_id STRING, location_name STRING,
+          forecast_time STRING, temperature_c DOUBLE, humidity_pct INT,
+          precipitation_mm DOUBLE, wind_speed_kmh DOUBLE, ingested_at STRING
+        ) USING DELTA
+    """)
+    spark.sql(f"""
+        MERGE INTO {table_name("silver")} AS target
+        USING incoming_weather_silver AS source
+        ON target.location_id = source.location_id
+           AND target.forecast_time = source.forecast_time
+        WHEN MATCHED THEN UPDATE SET
+          target.run_id = source.run_id,
+          target.location_name = source.location_name,
+          target.temperature_c = source.temperature_c,
+          target.humidity_pct = source.humidity_pct,
+          target.precipitation_mm = source.precipitation_mm,
+          target.wind_speed_kmh = source.wind_speed_kmh,
+          target.ingested_at = source.ingested_at
+        WHEN NOT MATCHED THEN INSERT *
+    """)
+
+    if invalid_summary:
+        body = (
+            f"Some hourly weather records were invalid and have been quarantined. "
+            f"The pipeline will continue because valid records remain.\nRun ID: {run_id}\n\n"
+            + "\n".join(invalid_summary)
+        )
+        send_failure_summary("Open-Meteo pipeline warning: invalid city/date records", body)
+        logger.warning(body)

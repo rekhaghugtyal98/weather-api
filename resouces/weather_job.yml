@@ -1,0 +1,168 @@
+resources:
+  jobs:
+    bronze_pipeline:
+      name: open-meteo-bronze-${bundle.target}
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+      parameters:
+        - name: run_id
+          default: manual
+        - name: weather_cities
+          default: all
+        - name: weather_start_date
+          default: ""
+        - name: weather_end_date
+          default: ""
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+      tasks:
+        - task_key: ingest_bronze
+          description: Fetch Open-Meteo data and append raw responses to Bronze.
+          spark_python_task:
+            python_file: ../src/weather_pipeline/entrypoint.py
+            parameters:
+              - --task
+              - ingest_bronze
+              - --run-id
+              - "{{job.parameters.run_id}}"
+              - --cities
+              - "{{job.parameters.weather_cities}}"
+              - --start-date
+              - "{{job.parameters.weather_start_date}}"
+              - --end-date
+              - "{{job.parameters.weather_end_date}}"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "2"
+            dependencies:
+              - "requests>=2.31,<3"
+
+    silver_pipeline:
+      name: open-meteo-silver-${bundle.target}
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+      parameters:
+        - name: run_id
+          default: manual
+        - name: weather_cities
+          default: all
+        - name: weather_start_date
+          default: ""
+        - name: weather_end_date
+          default: ""
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+      tasks:
+        - task_key: transform_silver
+          description: Validate, quarantine, and merge Bronze hourly records into Silver.
+          spark_python_task:
+            python_file: ../src/weather_pipeline/entrypoint.py
+            parameters:
+              - --task
+              - transform_silver
+              - --run-id
+              - "{{job.parameters.run_id}}"
+              - --cities
+              - "{{job.parameters.weather_cities}}"
+              - --start-date
+              - "{{job.parameters.weather_start_date}}"
+              - --end-date
+              - "{{job.parameters.weather_end_date}}"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "2"
+            dependencies:
+              - "requests>=2.31,<3"
+
+    gold_pipeline:
+      name: open-meteo-gold-${bundle.target}
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+      parameters:
+        - name: run_id
+          default: manual
+        - name: weather_cities
+          default: all
+        - name: weather_start_date
+          default: ""
+        - name: weather_end_date
+          default: ""
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+      tasks:
+        - task_key: build_gold
+          description: Aggregate Silver hourly records into daily Gold metrics.
+          spark_python_task:
+            python_file: ../src/weather_pipeline/entrypoint.py
+            parameters:
+              - --task
+              - build_gold
+              - --run-id
+              - "{{job.parameters.run_id}}"
+              - --cities
+              - "{{job.parameters.weather_cities}}"
+              - --start-date
+              - "{{job.parameters.weather_start_date}}"
+              - --end-date
+              - "{{job.parameters.weather_end_date}}"
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "2"
+            dependencies:
+              - "requests>=2.31,<3"
+
+    weather_pipeline_orchestrator:
+      name: open-meteo-pipeline-orchestrator-${bundle.target}
+      max_concurrent_runs: 1
+      timeout_seconds: 10800
+      parameters:
+        - name: weather_cities
+          default: all
+        - name: weather_start_date
+          default: ""
+        - name: weather_end_date
+          default: ""
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+      tasks:
+        - task_key: run_bronze_pipeline
+          description: Run the independent Bronze pipeline.
+          run_job_task:
+            job_id: ${resources.jobs.bronze_pipeline.id}
+            job_parameters:
+              run_id: "{{job.run_id}}"
+              weather_cities: "{{job.parameters.weather_cities}}"
+              weather_start_date: "{{job.parameters.weather_start_date}}"
+              weather_end_date: "{{job.parameters.weather_end_date}}"
+        - task_key: run_silver_pipeline
+          description: Run Silver only after the Bronze child job succeeds.
+          depends_on:
+            - task_key: run_bronze_pipeline
+          run_job_task:
+            job_id: ${resources.jobs.silver_pipeline.id}
+            job_parameters:
+              run_id: "{{job.run_id}}"
+              weather_cities: "{{job.parameters.weather_cities}}"
+              weather_start_date: "{{job.parameters.weather_start_date}}"
+              weather_end_date: "{{job.parameters.weather_end_date}}"
+        - task_key: run_gold_pipeline
+          description: Run Gold only after the Silver child job succeeds.
+          depends_on:
+            - task_key: run_silver_pipeline
+          run_job_task:
+            job_id: ${resources.jobs.gold_pipeline.id}
+            job_parameters:
+              run_id: "{{job.run_id}}"
+              weather_cities: "{{job.parameters.weather_cities}}"
+              weather_start_date: "{{job.parameters.weather_start_date}}"
+              weather_end_date: "{{job.parameters.weather_end_date}}"
