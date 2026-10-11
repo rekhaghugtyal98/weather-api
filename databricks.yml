@@ -30,24 +30,21 @@ targets:
     workspace:
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     variables:
-      catalog: workspace
-      schema: weather_api_dev
-      audit_schema: audit
+      catalog: main
+      schema: weather_pipeline_dev
 
   test:
     mode: development
     workspace:
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     variables:
-      catalog: workspace
-      schema: weather_api_test
-      audit_schema: audit
+      catalog: main
+      schema: weather_pipeline_test
 
   prod:
     mode: development
     workspace:
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     variables:
-      catalog: workspace
-      schema: weather_api_prod
-      audit_schema: audit
+      catalog: main
+      schema: weather_pipeline_prod
