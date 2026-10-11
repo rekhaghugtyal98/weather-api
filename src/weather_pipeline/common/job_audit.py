@@ -11,6 +11,11 @@ from .utils import safe_identifier
 
 
 def _ensure_audit_table(spark):
+    """Ensure the configured job-audit schema and Delta table exist.
+
+    Args:
+        spark: Active Spark session used to issue the schema and table DDL.
+    """
     catalog = safe_identifier(os.getenv("WEATHER_CATALOG", "workspace"))
     audit_schema = safe_identifier(os.getenv("WEATHER_AUDIT_SCHEMA", "audit"))
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{audit_schema}`")
@@ -29,7 +34,17 @@ def _ensure_audit_table(spark):
 
 
 def start_job_audit(spark, run_id, layer_type, parameters):
-    """Create the RUNNING row for this execution and return its unique audit ID."""
+    """Insert or merge a RUNNING audit row for a pipeline task.
+
+    Args:
+        spark: Active Spark session used to write the audit table.
+        run_id: Identifier for the overall pipeline run.
+        layer_type: Pipeline layer name, such as ``bronze``, ``silver``, or ``gold``.
+        parameters: JSON-serializable task parameters to retain for diagnostics.
+
+    Returns:
+        The generated UUID string identifying this audit row.
+    """
     _ensure_audit_table(spark)
     audit_id = str(uuid.uuid4())
     start_schema = StructType([
@@ -69,7 +84,14 @@ def start_job_audit(spark, run_id, layer_type, parameters):
 
 
 def finish_job_audit(spark, audit_id, status, reason=None):
-    """Update this execution's audit row with its final status and end time."""
+    """Set the final status, end time, and optional reason on an audit row.
+
+    Args:
+        spark: Active Spark session used to update the audit table.
+        audit_id: UUID returned by :func:`start_job_audit`.
+        status: Final status value, normally ``SUCCESS`` or ``FAILED``.
+        reason: Optional failure detail stored with the audit record.
+    """
     update_schema = StructType([
         StructField("audit_id", StringType(), False),
         StructField("status", StringType(), False),

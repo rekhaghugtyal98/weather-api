@@ -1,4 +1,4 @@
-﻿"""Databricks Python-file entrypoint for the weather pipeline jobs."""
+"""Databricks Python-file entrypoint for the weather pipeline jobs."""
 import argparse
 import logging
 import os
@@ -7,6 +7,15 @@ from pathlib import Path
 
 
 def main() -> None:
+    """Parse Databricks job arguments, configure runtime settings, and run a pipeline task.
+
+    The task name, run ID, location/date scope, and catalog settings are read from
+    command-line arguments. The selected Bronze, Silver, or Gold task is executed
+    with job-audit status recorded before and after the run.
+
+    Raises:
+        Exception: Re-raises task failures after recording a failed audit status.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", required=True, choices=("ingest_bronze", "transform_silver", "build_gold"))
     parser.add_argument("--run-id", required=True)

@@ -10,6 +10,19 @@ from ..common.schemas import API_RESPONSE_SCHEMA
 logger = logging.getLogger(__name__)
 
 def transform_silver(spark: SparkSession, run_id: str) -> None:
+    """Convert this run's raw Bronze payloads into validated hourly Silver records.
+
+    The method parses and flattens hourly arrays, checks value ranges and duplicate
+    keys, appends invalid records to quarantine, and merges valid records into the
+    Silver table. Invalid-record summaries are emailed when configured.
+
+    Args:
+        spark: Active Spark session used to read and write Delta tables.
+        run_id: Run identifier used to select Bronze payloads and tag output rows.
+
+    Raises:
+        RuntimeError: If this run has no Bronze payloads or produces no valid rows.
+    """
     catalog = safe_identifier(os.getenv("WEATHER_CATALOG", "workspace"))
     schema = safe_identifier(os.getenv("WEATHER_SCHEMA", "weather_api_dev"))
     audit_schema = safe_identifier(os.getenv("WEATHER_AUDIT_SCHEMA", "audit"))

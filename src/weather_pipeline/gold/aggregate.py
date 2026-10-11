@@ -4,6 +4,15 @@ from ..common.config import table_name
 from ..common.utils import safe_identifier
 
 def build_gold(spark: SparkSession, run_id: str) -> None:
+    """Aggregate Silver weather observations into daily Gold metrics.
+
+    Calculates daily temperature, humidity, precipitation, wind, and record-count
+    metrics for each location, then merges the results into the Gold Delta table.
+
+    Args:
+        spark: Active Spark session used to read Silver and write Gold.
+        run_id: Pipeline run identifier retained for a consistent task interface.
+    """
     catalog = safe_identifier(__import__("os").getenv("WEATHER_CATALOG", "workspace"))
     schema = safe_identifier(__import__("os").getenv("WEATHER_SCHEMA", "weather_api_dev"))
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")

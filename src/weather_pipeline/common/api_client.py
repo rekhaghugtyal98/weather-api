@@ -4,7 +4,17 @@ import requests
 from .config import API_URL, FORECAST_DAYS, HOURLY_VARIABLES, requested_date_range
 
 def _invalid_hourly_rows(hourly: dict) -> list[str]:
-    """Return short reasons for malformed or out-of-range hourly values."""
+    """Collect data-quality issues found in an Open-Meteo hourly response section.
+
+    Checks required arrays, matching array lengths, timestamps, duplicate times,
+    numeric values, and accepted measurement ranges.
+
+    Args:
+        hourly: The response's ``hourly`` object, or an empty dictionary if absent.
+
+    Returns:
+        A list of issue descriptions; an empty list means the data passed checks.
+    """
     fields = {
         "temperature_2m": (-90, 65),
         "relative_humidity_2m": (0, 100),
@@ -52,6 +62,24 @@ def _invalid_hourly_rows(hourly: dict) -> list[str]:
     return issues
 
 def fetch_forecast(session, location, timeout: int = 30) -> dict:
+    """Fetch a location forecast and validate hourly data with up to three attempts.
+
+    Uses the configured date range when present, otherwise requests the configured
+    forecast window. Transient request errors and invalid hourly data are retried.
+    On the final data-quality failure, returns the payload with a quality-warning
+    field so downstream processing can quarantine invalid rows.
+
+    Args:
+        session: Requests-compatible session used to make the HTTP request.
+        location: Location object providing ``latitude``, ``longitude``, and ``name``.
+        timeout: HTTP request timeout in seconds; defaults to 30.
+
+    Returns:
+        The decoded Open-Meteo JSON response as a dictionary.
+
+    Raises:
+        RuntimeError: If all attempts fail due to request or response errors.
+    """
     start_date, end_date = requested_date_range()
     params = {
         "latitude": location.latitude,

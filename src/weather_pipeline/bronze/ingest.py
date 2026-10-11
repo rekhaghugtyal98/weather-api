@@ -40,6 +40,19 @@ SCHEMA_AUDIT_SCHEMA = StructType([
 ])
 
 def ingest_bronze(spark: SparkSession, run_id: str) -> None:
+    """Fetch forecasts for configured locations and persist raw Bronze and audit records.
+
+    Each location is requested independently. Successful raw responses and schema
+    drift are saved to Delta tables; per-location success or failure is recorded
+    in the ingestion audit table. Failures trigger a summary notification.
+
+    Args:
+        spark: Active Spark session used to create schemas and write Delta tables.
+        run_id: Identifier shared by all records produced by this pipeline run.
+
+    Raises:
+        RuntimeError: If every selected location fails to return a usable payload.
+    """
     catalog = safe_identifier(os.getenv("WEATHER_CATALOG", "workspace"))
     schema = safe_identifier(os.getenv("WEATHER_SCHEMA", "weather_api_dev"))
     audit_schema = safe_identifier(os.getenv("WEATHER_AUDIT_SCHEMA", "audit"))
