@@ -16,7 +16,8 @@ def main() -> None:
     parser.add_argument("--schema", default="weather_pipeline")
     args = parser.parse_args()
 
-    source_root = str(Path(__file__).resolve().parents[1])
+    # Databricks may execute this file via exec(compile(...)), where __file__ is unset.
+    source_root = str(Path(main.__code__.co_filename).resolve().parents[1])
     if source_root not in sys.path:
         sys.path.insert(0, source_root)
 
