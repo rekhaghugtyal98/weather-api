@@ -18,6 +18,7 @@ variables:
     default: weather_pipeline_dev
   notification_email:
     description: Email address for Databricks job failure notifications
+    default: rekhaghugtyal98@gmail.com
 
 targets:
   dev:
