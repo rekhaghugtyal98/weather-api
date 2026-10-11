@@ -3,7 +3,7 @@ from pyspark.sql import SparkSession, functions as F
 from ..common.config import table_name
 from ..common.utils import safe_identifier
 
-def build_gold(spark: SparkSession, run_id: str) -> None:
+def build_gold(spark: SparkSession, run_id: str, metrics: dict | None = None) -> None:
     """Aggregate Silver weather observations into daily Gold metrics.
 
     Calculates daily temperature, humidity, precipitation, wind, and record-count
@@ -12,11 +12,15 @@ def build_gold(spark: SparkSession, run_id: str) -> None:
     Args:
         spark: Active Spark session used to read Silver and write Gold.
         run_id: Pipeline run identifier retained for a consistent task interface.
+        metrics: Optional dictionary populated with Silver input and daily output counts.
     """
     catalog = safe_identifier(__import__("os").getenv("WEATHER_CATALOG", "workspace"))
     schema = safe_identifier(__import__("os").getenv("WEATHER_SCHEMA", "weather_api_dev"))
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
     silver = spark.table(table_name("silver"))
+    input_count = silver.count()
+    if metrics is not None:
+        metrics.update(input_row_count=input_count, output_row_count=0, rejected_row_count=0)
     daily = silver.withColumn("forecast_date", F.to_date("forecast_time")).groupBy(
         "location_id", "location_name", "forecast_date"
     ).agg(
@@ -28,6 +32,9 @@ def build_gold(spark: SparkSession, run_id: str) -> None:
         F.avg("wind_speed_kmh").alias("avg_wind_speed_kmh"),
         F.count("*").alias("hourly_record_count"),
     ).withColumn("updated_at", F.current_timestamp().cast("string"))
+    output_count = daily.count()
+    if metrics is not None:
+        metrics.update(output_row_count=output_count)
     daily.createOrReplaceTempView("incoming_weather_gold")
     spark.sql(f"""
         CREATE TABLE IF NOT EXISTS {table_name("gold")} (

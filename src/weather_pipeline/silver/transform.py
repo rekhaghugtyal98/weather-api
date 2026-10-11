@@ -9,7 +9,7 @@ from ..common.schemas import API_RESPONSE_SCHEMA
 
 logger = logging.getLogger(__name__)
 
-def transform_silver(spark: SparkSession, run_id: str) -> None:
+def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = None) -> None:
     """Convert this run's raw Bronze payloads into validated hourly Silver records.
 
     The method parses and flattens hourly arrays, checks value ranges and duplicate
@@ -19,6 +19,7 @@ def transform_silver(spark: SparkSession, run_id: str) -> None:
     Args:
         spark: Active Spark session used to read and write Delta tables.
         run_id: Run identifier used to select Bronze payloads and tag output rows.
+        metrics: Optional dictionary populated with Bronze, valid, and rejected row counts.
 
     Raises:
         RuntimeError: If this run has no Bronze payloads or produces no valid rows.
@@ -29,7 +30,10 @@ def transform_silver(spark: SparkSession, run_id: str) -> None:
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{audit_schema}`")
     bronze = spark.table(table_name("bronze")).where(F.col("run_id") == str(run_id))
-    if bronze.limit(1).count() == 0:
+    bronze_count = bronze.count()
+    if metrics is not None:
+        metrics.update(input_row_count=bronze_count, output_row_count=0, rejected_row_count=0)
+    if bronze_count == 0:
         raise RuntimeError(f"No Bronze payloads found for run_id={run_id}")
 
     parsed = bronze.withColumn("api", F.from_json("payload_json", API_RESPONSE_SCHEMA))
@@ -70,9 +74,14 @@ def transform_silver(spark: SparkSession, run_id: str) -> None:
              .otherwise(F.lit("Duplicate location_id and forecast_time")),
         ).drop("is_duplicate"))
 
+    valid_count = valid.count()
+    invalid_count = invalid.count()
+    if metrics is not None:
+        metrics.update(output_row_count=valid_count, rejected_row_count=invalid_count)
+
     # Summarize invalid city/date coverage for notification, without failing if some good rows remain.
     invalid_summary = []
-    if invalid.limit(1).count():
+    if invalid_count:
         invalid_summary = [
             f"{r['location_name']} on {r['forecast_date']}: {r['invalid_count']} invalid hourly record(s)"
             for r in invalid.withColumn("forecast_date", F.to_date("forecast_time")) \
@@ -81,7 +90,7 @@ def transform_silver(spark: SparkSession, run_id: str) -> None:
         ]
         invalid.write.format("delta").mode("append").option("mergeSchema", "true").saveAsTable(table_name("quarantine"))
 
-    if valid.limit(1).count() == 0:
+    if valid_count == 0:
         body = (
             f"No valid hourly weather records were produced. Silver task is failing.\nRun ID: {run_id}\n"
             + ("\n".join(invalid_summary) if invalid_summary else "No valid rows found; inspect Bronze/API response.")

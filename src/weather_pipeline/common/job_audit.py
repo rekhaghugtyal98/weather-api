@@ -4,7 +4,7 @@ import os
 import uuid
 
 from pyspark.sql import functions as F
-from pyspark.sql.types import StringType, StructField, StructType
+from pyspark.sql.types import LongType, StringType, StructField, StructType
 
 from .config import table_name
 from .utils import safe_identifier
@@ -28,9 +28,17 @@ def _ensure_audit_table(spark):
           start_time TIMESTAMP NOT NULL,
           end_time TIMESTAMP,
           reason STRING,
-          parameters_json STRING
+          parameters_json STRING,
+          input_row_count BIGINT,
+          output_row_count BIGINT,
+          rejected_row_count BIGINT
         ) USING DELTA
     """)
+    table = table_name("job_audit")
+    existing_columns = {field.name for field in spark.table(table).schema.fields}
+    for column in ("input_row_count", "output_row_count", "rejected_row_count"):
+        if column not in existing_columns:
+            spark.sql(f"ALTER TABLE {table} ADD COLUMNS ({column} BIGINT)")
 
 
 def start_job_audit(spark, run_id, layer_type, parameters):
@@ -53,14 +61,18 @@ def start_job_audit(spark, run_id, layer_type, parameters):
         StructField("layer_type", StringType(), False),
         StructField("status", StringType(), False),
         StructField("parameters_json", StringType(), True),
+        StructField("input_row_count", LongType(), True),
+        StructField("output_row_count", LongType(), True),
+        StructField("rejected_row_count", LongType(), True),
     ])
-    row = [(audit_id, str(run_id), layer_type, "RUNNING", json.dumps(parameters, sort_keys=True))]
+    row = [(audit_id, str(run_id), layer_type, "RUNNING", json.dumps(parameters, sort_keys=True), None, None, None)]
     start = (spark.createDataFrame(row, start_schema)
         .withColumn("start_time", F.current_timestamp())
         .withColumn("end_time", F.lit(None).cast("timestamp"))
         .withColumn("reason", F.lit(None).cast("string"))
         .select("audit_id", "run_id", "layer_type", "status", "start_time",
-                "end_time", "reason", "parameters_json"))
+                "end_time", "reason", "parameters_json", "input_row_count",
+                "output_row_count", "rejected_row_count"))
     view = f"job_audit_start_{uuid.uuid4().hex}"
     start.createOrReplaceTempView(view)
     try:
@@ -75,7 +87,10 @@ def start_job_audit(spark, run_id, layer_type, parameters):
               target.start_time = source.start_time,
               target.end_time = source.end_time,
               target.reason = source.reason,
-              target.parameters_json = source.parameters_json
+              target.parameters_json = source.parameters_json,
+              target.input_row_count = source.input_row_count,
+              target.output_row_count = source.output_row_count,
+              target.rejected_row_count = source.rejected_row_count
             WHEN NOT MATCHED THEN INSERT *
         """)
     finally:
@@ -83,21 +98,31 @@ def start_job_audit(spark, run_id, layer_type, parameters):
     return audit_id
 
 
-def finish_job_audit(spark, audit_id, status, reason=None):
-    """Set the final status, end time, and optional reason on an audit row.
+def finish_job_audit(spark, audit_id, status, reason=None, metrics=None):
+    """Set final status, row counts, end time, and optional reason on an audit row.
 
     Args:
         spark: Active Spark session used to update the audit table.
         audit_id: UUID returned by :func:`start_job_audit`.
         status: Final status value, normally ``SUCCESS`` or ``FAILED``.
         reason: Optional failure detail stored with the audit record.
+        metrics: Optional dictionary containing input, output, and rejected row counts.
     """
     update_schema = StructType([
         StructField("audit_id", StringType(), False),
         StructField("status", StringType(), False),
         StructField("reason", StringType(), True),
+        StructField("input_row_count", LongType(), True),
+        StructField("output_row_count", LongType(), True),
+        StructField("rejected_row_count", LongType(), True),
     ])
-    update = (spark.createDataFrame([(audit_id, status, reason)], update_schema)
+    metrics = metrics or {}
+    update = (spark.createDataFrame([(
+        audit_id, status, reason,
+        metrics.get("input_row_count"),
+        metrics.get("output_row_count"),
+        metrics.get("rejected_row_count"),
+    )], update_schema)
         .withColumn("end_time", F.current_timestamp()))
     view = f"job_audit_update_{uuid.uuid4().hex}"
     update.createOrReplaceTempView(view)
@@ -109,7 +134,10 @@ def finish_job_audit(spark, audit_id, status, reason=None):
             WHEN MATCHED THEN UPDATE SET
               target.status = source.status,
               target.end_time = source.end_time,
-              target.reason = source.reason
+              target.reason = source.reason,
+              target.input_row_count = source.input_row_count,
+              target.output_row_count = source.output_row_count,
+              target.rejected_row_count = source.rejected_row_count
         """)
     finally:
         spark.catalog.dropTempView(view)

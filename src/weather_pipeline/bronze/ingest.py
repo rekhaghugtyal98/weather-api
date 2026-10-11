@@ -39,7 +39,7 @@ SCHEMA_AUDIT_SCHEMA = StructType([
     StructField("event_time", StringType(), False),
 ])
 
-def ingest_bronze(spark: SparkSession, run_id: str) -> None:
+def ingest_bronze(spark: SparkSession, run_id: str, metrics: dict | None = None) -> None:
     """Fetch forecasts for configured locations and persist raw Bronze and audit records.
 
     Each location is requested independently. Successful raw responses and schema
@@ -49,6 +49,7 @@ def ingest_bronze(spark: SparkSession, run_id: str) -> None:
     Args:
         spark: Active Spark session used to create schemas and write Delta tables.
         run_id: Identifier shared by all records produced by this pipeline run.
+        metrics: Optional dictionary populated with attempted, ingested, and failed counts.
 
     Raises:
         RuntimeError: If every selected location fails to return a usable payload.
@@ -63,6 +64,8 @@ def ingest_bronze(spark: SparkSession, run_id: str) -> None:
 
     raw_rows, audit_rows, schema_audit_rows, failures = [], [], [], []
     locations = selected_locations()
+    if metrics is not None:
+        metrics.update(input_row_count=len(locations), output_row_count=0, rejected_row_count=0)
     # A new session per task avoids sharing mutable HTTP state across tasks.
     import requests
     session = requests.Session()
@@ -88,6 +91,9 @@ def ingest_bronze(spark: SparkSession, run_id: str) -> None:
             message = f"{type(exc).__name__}: {exc}"[:4000]
             failures.append(f"{location.name} ({location.location_id}): {message}")
             audit_rows.append((str(run_id), location.location_id, location.name, "FAILED", message, now))
+
+    if metrics is not None:
+        metrics.update(output_row_count=len(raw_rows), rejected_row_count=len(failures))
 
     if raw_rows:
         spark.createDataFrame(raw_rows, BRONZE_SCHEMA).write.format("delta").mode("append").saveAsTable(bronze_table)
