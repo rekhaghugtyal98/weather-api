@@ -29,7 +29,6 @@ targets:
     variables:
       catalog: main
       schema: weather_pipeline_dev
-      notification_email: ${env.WEATHER_ALERT_EMAIL}
 
   test:
     mode: development
@@ -38,7 +37,6 @@ targets:
     variables:
       catalog: main
       schema: weather_pipeline_test
-      notification_email: ${env.WEATHER_ALERT_EMAIL}
 
   prod:
     mode: development
@@ -47,4 +45,3 @@ targets:
     variables:
       catalog: main
       schema: weather_pipeline_prod
-      notification_email: ${env.WEATHER_ALERT_EMAIL}

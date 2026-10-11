@@ -89,7 +89,7 @@ jobs:
           fi
           echo "DATABRICKS_HOST=$DATABRICKS_HOST_SECRET" >> "$GITHUB_ENV"
           echo "DATABRICKS_TOKEN=$DATABRICKS_TOKEN_SECRET" >> "$GITHUB_ENV"
-          echo "WEATHER_ALERT_EMAIL=$WEATHER_ALERT_EMAIL_SECRET" >> "$GITHUB_ENV"
+          echo "BUNDLE_VAR_notification_email=$WEATHER_ALERT_EMAIL_SECRET" >> "$GITHUB_ENV"
 
       - name: Validate bundle
         run: databricks bundle validate -t "${{ needs.choose-target.outputs.target }}"
