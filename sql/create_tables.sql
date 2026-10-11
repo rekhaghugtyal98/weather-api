@@ -71,3 +71,14 @@ CREATE TABLE IF NOT EXISTS workspace.audit.weather_api_schema_changes (
   observed_type STRING,
   event_time STRING NOT NULL
 ) USING DELTA;
+
+CREATE TABLE IF NOT EXISTS workspace.audit.weather_job_audit (
+  audit_id STRING NOT NULL,
+  run_id STRING NOT NULL,
+  layer_type STRING NOT NULL,
+  status STRING NOT NULL,
+  start_time TIMESTAMP NOT NULL,
+  end_time TIMESTAMP,
+  reason STRING,
+  parameters_json STRING
+) USING DELTA;

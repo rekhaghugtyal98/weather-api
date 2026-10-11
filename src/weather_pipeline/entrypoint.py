@@ -1,5 +1,6 @@
 ﻿"""Databricks Python-file entrypoint for the weather pipeline jobs."""
 import argparse
+import logging
 import os
 import sys
 from pathlib import Path
@@ -40,15 +41,41 @@ def main() -> None:
     from pyspark.sql import SparkSession
 
     spark = SparkSession.builder.getOrCreate()
-    if args.task == "ingest_bronze":
-        from weather_pipeline.bronze.ingest import ingest_bronze
-        ingest_bronze(spark, args.run_id)
-    elif args.task == "transform_silver":
-        from weather_pipeline.silver.transform import transform_silver
-        transform_silver(spark, args.run_id)
+    from weather_pipeline.common.job_audit import start_job_audit, finish_job_audit
+
+    task_layers = {
+        "ingest_bronze": "bronze",
+        "transform_silver": "silver",
+        "build_gold": "gold",
+    }
+    parameters = {
+        "cities": args.cities,
+        "start_date": args.start_date or None,
+        "end_date": args.end_date or None,
+        "catalog": args.catalog,
+        "schema": args.schema,
+        "audit_schema": args.audit_schema,
+    }
+    audit_id = start_job_audit(spark, args.run_id, task_layers[args.task], parameters)
+    try:
+        if args.task == "ingest_bronze":
+            from weather_pipeline.bronze.ingest import ingest_bronze
+            ingest_bronze(spark, args.run_id)
+        elif args.task == "transform_silver":
+            from weather_pipeline.silver.transform import transform_silver
+            transform_silver(spark, args.run_id)
+        else:
+            from weather_pipeline.gold.aggregate import build_gold
+            build_gold(spark, args.run_id)
+    except Exception as exc:
+        logging.exception("Task %s failed for run_id=%s", args.task, args.run_id)
+        try:
+            finish_job_audit(spark, audit_id, "FAILED", f"{type(exc).__name__}: {exc}"[:4000])
+        except Exception:
+            logging.exception("Could not finalize failed job audit for audit_id=%s", audit_id)
+        raise
     else:
-        from weather_pipeline.gold.aggregate import build_gold
-        build_gold(spark, args.run_id)
+        finish_job_audit(spark, audit_id, "SUCCESS")
 
 
 if __name__ == "__main__":
