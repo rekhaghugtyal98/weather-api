@@ -32,6 +32,10 @@ resources:
               - "{{job.parameters.weather_start_date}}"
               - --end-date
               - "{{job.parameters.weather_end_date}}"
+              - --catalog
+              - ${var.catalog}
+              - --schema
+              - ${var.schema}
           environment_key: default
       environments:
         - environment_key: default
@@ -72,6 +76,10 @@ resources:
               - "{{job.parameters.weather_start_date}}"
               - --end-date
               - "{{job.parameters.weather_end_date}}"
+              - --catalog
+              - ${var.catalog}
+              - --schema
+              - ${var.schema}
           environment_key: default
       environments:
         - environment_key: default
@@ -112,6 +120,10 @@ resources:
               - "{{job.parameters.weather_start_date}}"
               - --end-date
               - "{{job.parameters.weather_end_date}}"
+              - --catalog
+              - ${var.catalog}
+              - --schema
+              - ${var.schema}
           environment_key: default
       environments:
         - environment_key: default
