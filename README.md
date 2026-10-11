@@ -37,8 +37,11 @@ The Databricks Job has overridable parameters:
 - `weather_cities`: `all` by default, or a comma-separated list of city IDs such as `bengaluru,delhi`.
 - `weather_start_date`: optional ISO date such as `2026-10-08`.
 - `weather_end_date`: optional ISO date such as `2026-10-10`. Set both dates together.
-- `WEATHER_FORECAST_DAYS`: number of forecast days when no date range is specified (default `7`).
+- `weather_api_url`: target-specific Open-Meteo-compatible endpoint. Defaults to `https://api.open-meteo.com/v1/forecast`.
+- `weather_forecast_days`: target-specific forecast length when no date range is specified. Defaults are 3 days in dev, 5 in test, and 7 in prod; valid values are 3–7.
 - `WEATHER_CATALOG`, `WEATHER_SCHEMA`, and `WEATHER_AUDIT_SCHEMA`: target Unity Catalog catalog/data schema/audit schema (defaults `workspace` / `weather_api_dev` / `audit`).
+
+The endpoint and forecast length are Databricks Asset Bundle variables (`api_url` and `forecast_days`) and can be overridden per target in `databricks.yml` or with `BUNDLE_VAR_api_url` / `BUNDLE_VAR_forecast_days` during deployment. The orchestrator passes both settings to each child job, and the entrypoint sets `OPEN_METEO_API_URL` and `WEATHER_FORECAST_DAYS` before importing pipeline configuration.
 
 Use **Run now with different parameters** on `weather_pipeline_orchestrator` to run the full chain for selected cities/dates. To recover a single layer, run `bronze_pipeline`, `silver_pipeline`, or `gold_pipeline` directly with matching parameters. Keep the same `run_id` when running Silver against a particular Bronze ingestion. The orchestrator run ID is passed to all child jobs.
 

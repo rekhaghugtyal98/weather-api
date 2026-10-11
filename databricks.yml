@@ -19,6 +19,12 @@ variables:
   audit_schema:
     description: Schema for shared pipeline audit tables
     default: audit
+  api_url:
+    description: Open-Meteo API endpoint for the selected target
+    default: https://api.open-meteo.com/v1/forecast
+  forecast_days:
+    description: Number of forecast days to request when dates are not specified
+    default: "7"
   notification_email:
     description: Email address for Databricks job failure notifications
     default: rekhaghugtyal98@gmail.com
@@ -33,6 +39,8 @@ targets:
       catalog: workspace
       schema: weather_api_dev
       audit_schema: audit
+      api_url: https://api.open-meteo.com/v1/forecast
+      forecast_days: "3"
 
   test:
     mode: development
@@ -42,6 +50,8 @@ targets:
       catalog: workspace
       schema: weather_api_test
       audit_schema: audit
+      api_url: https://api.open-meteo.com/v1/forecast
+      forecast_days: "5"
 
   prod:
     mode: development
@@ -51,3 +61,5 @@ targets:
       catalog: workspace
       schema: weather_api_prod
       audit_schema: audit
+      api_url: https://api.open-meteo.com/v1/forecast
+      forecast_days: "7"
