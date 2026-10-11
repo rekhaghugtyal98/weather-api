@@ -44,6 +44,11 @@ SELECT run_id, location_id, field_path, change_type,
 FROM workspace.audit.weather_api_schema_changes
 ORDER BY event_time DESC;
 
+-- Tile 7: one job status row per execution; reruns have separate audit IDs
+SELECT run_id, layer_type, status, start_time, end_time, reason
+FROM workspace.audit.weather_job_audit
+ORDER BY start_time DESC;
+
 -- Detail query: invalid records and quarantine reasons
 SELECT run_id, location_name, forecast_time, quarantine_reason
 FROM workspace.audit.weather_rejected_hourly_records

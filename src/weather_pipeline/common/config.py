@@ -70,10 +70,11 @@ def table_name(layer: str) -> str:
         "quarantine": "weather_rejected_hourly_records",
         "location_audit": "weather_ingestion_audit",
         "schema_audit": "weather_api_schema_changes",
+        "job_audit": "weather_job_audit",
     }
     if layer not in table_names:
         raise ValueError(f"Unsupported table layer: {layer}")
     selected_schema = audit_schema if layer in {
-        "quarantine", "location_audit", "schema_audit"
+        "quarantine", "location_audit", "schema_audit", "job_audit"
     } else schema
     return f"`{catalog}`.`{selected_schema}`.`{table_names[layer]}`"

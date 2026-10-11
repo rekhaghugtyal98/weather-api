@@ -26,6 +26,7 @@ pyproject.toml
 - If **all selected city requests fail**, Bronze ingestion fails after sending an email summary. Silver and Gold are skipped.
 - Invalid hourly records are written to `weather_rejected_hourly_records`. If at least some valid rows remain, Silver processes those rows and emails a city/date summary. If **no valid hourly rows remain**, Silver fails and Gold is skipped.
 - Every Bronze response is checked against the expected Open-Meteo fields. Added, missing, or type-changed fields are appended to `weather_schema_audit` and logged; the raw payload remains available in Bronze for investigation.
+- Each Bronze, Silver, and Gold task execution has one `weather_job_audit` row with run ID, layer, status, start/end time, parameters, and failure reason. The row is updated from `RUNNING` to `SUCCESS` or `FAILED`; a rerun gets a separate row even when it reuses the same run ID. A hard process termination can leave a `RUNNING` row for investigation.
 - Silver merges on `(location_id, forecast_time)`. Gold merges on `(location_id, forecast_date)`. Re-running a city/date range updates existing logical records instead of duplicating them.
 - Bronze is append-only by design and stores each successful pull.
 
@@ -70,7 +71,7 @@ Unit tests cover pure validation, API response edge cases, retry behavior, and s
 
 ## Dashboard queries
 
-`sql/dashboard_queries.sql` contains six dashboard tile queries for city weather comparisons, precipitation, latest API status, ingestion/rejection counts, Silver freshness, and API schema changes. The queries target `workspace.weather_api_dev`; change the schema for the test or production workspace as needed. Run each query in Databricks SQL and add it as a visualization/tile to a dashboard. This repository contains the query set, but the dashboard itself must be created in the workspace.
+`sql/dashboard_queries.sql` contains dashboard tile queries for city weather comparisons, precipitation, latest API status, ingestion/rejection counts, Silver freshness, API schema changes, and job status by layer. The queries target `workspace.weather_api_dev`; change the schema for the test or production workspace as needed. Run each query in Databricks SQL and add it as a visualization/tile to a dashboard. This repository contains the query set, but the dashboard itself must be created in the workspace.
 
 ## GitHub Actions secrets
 
@@ -110,6 +111,7 @@ If every selected city fails, Bronze fails and Silver/Gold do not run. If some c
 - `workspace.audit.weather_rejected_hourly_records`
 - `workspace.audit.weather_ingestion_audit`
 - `workspace.audit.weather_api_schema_changes`
+- `workspace.audit.weather_job_audit`
 
 The target schemas are `weather_api_dev`, `weather_api_test`, and `weather_api_prod`.
 
