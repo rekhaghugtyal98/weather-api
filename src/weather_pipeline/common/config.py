@@ -27,31 +27,47 @@ ALL_LOCATIONS = (
 )
 
 def selected_locations():
-    """Return all configured locations or the subset selected by environment.
+    """Return all configured locations or valid IDs selected by environment.
 
     The ``WEATHER_CITIES`` variable accepts comma-separated location IDs. An
-    unset or blank value selects every configured location.
+    unset or blank value selects every configured location. Unknown IDs are
+    ignored when at least one valid ID is present.
 
     Returns:
         A tuple of :class:`Location` objects in the configured order.
 
     Raises:
-        ValueError: If the variable contains unknown IDs or no usable IDs.
+        ValueError: If no valid location IDs were selected.
+    """
+    locations, unknown = resolve_location_selection()
+    if not locations:
+        raise ValueError(
+            f"No valid city IDs selected. Unknown IDs: {', '.join(unknown)}. "
+            f"Allowed IDs: {', '.join(loc.location_id for loc in ALL_LOCATIONS)}"
+        )
+    return locations
+
+
+def resolve_location_selection():
+    """Return valid configured locations and any unknown requested IDs.
+
+    Returns:
+        A pair containing a tuple of valid :class:`Location` objects and a tuple
+        of unknown city IDs. An unset or blank variable selects every location.
+
+    Raises:
+        ValueError: If ``WEATHER_CITIES`` is set but contains no IDs.
     """
     requested = os.getenv("WEATHER_CITIES", "").strip()
     if not requested:
-        return ALL_LOCATIONS
+        return ALL_LOCATIONS, ()
     wanted = {item.strip().lower() for item in requested.split(",") if item.strip()}
-    known = {loc.location_id: loc for loc in ALL_LOCATIONS}
-    unknown = wanted - set(known)
-    if unknown:
-        raise ValueError(
-            f"Unknown WEATHER_CITIES value(s): {', '.join(sorted(unknown))}. "
-            f"Allowed IDs: {', '.join(sorted(known))}"
-        )
     if not wanted:
         raise ValueError("WEATHER_CITIES was set but no city IDs were supplied")
-    return tuple(loc for loc in ALL_LOCATIONS if loc.location_id in wanted)
+    known = {loc.location_id: loc for loc in ALL_LOCATIONS}
+    unknown = wanted - set(known)
+    locations = tuple(loc for loc in ALL_LOCATIONS if loc.location_id in wanted)
+    return locations, tuple(sorted(unknown))
 
 HOURLY_VARIABLES = (
     "temperature_2m",

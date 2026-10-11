@@ -22,11 +22,11 @@ pyproject.toml
 ## Behavior and retry policy
 
 - Each city request gets **3 total attempts**: the first request plus **2 retries**.
-- A city that still fails is recorded in `weather_location_audit` and included in an email summary. Other successful cities continue through the pipeline.
+- A city that still fails is recorded in `weather_location_audit` and included in an email summary. Other successful cities continue through the pipeline. Unknown IDs in `weather_cities` are recorded as `SKIPPED`; valid IDs in the same request still run. If no valid IDs are supplied, Bronze records the skipped IDs and fails without making API requests.
 - If **all selected city requests fail**, Bronze ingestion fails after sending an email summary. Silver and Gold are skipped.
 - Invalid hourly records are written to `weather_rejected_hourly_records`. If at least some valid rows remain, Silver processes those rows and emails a city/date summary. If **no valid hourly rows remain**, Silver fails and Gold is skipped.
 - Every Bronze response is checked against the expected Open-Meteo fields. Added, missing, or type-changed fields are appended to `weather_schema_audit` and logged; the raw payload remains available in Bronze for investigation.
-- Each Bronze, Silver, and Gold task execution has one `weather_job_audit` row with run ID, layer, status, start/end time, parameters, failure reason, and input/output/rejected row counts. Counts represent attempted locations and ingested payloads in Bronze, Bronze payloads and valid/quarantined hourly records in Silver, and Silver hourly rows and daily aggregates in Gold. The row is updated from `RUNNING` to `SUCCESS` or `FAILED`; a rerun gets a separate row even when it reuses the same run ID. A hard process termination can leave a `RUNNING` row for investigation.
+- Each Bronze, Silver, and Gold task execution has one `weather_job_audit` row with run ID, layer, status, start/end time, parameters, failure reason, and input/output/rejected row counts. Bronze also records successful city names and failed or skipped city reasons in the job audit `reason` field. Counts represent attempted locations and ingested payloads in Bronze, Bronze payloads and valid/quarantined hourly records in Silver, and Silver hourly rows and daily aggregates in Gold. The row is updated from `RUNNING` to `SUCCESS` or `FAILED`; a rerun gets a separate row even when it reuses the same run ID. A hard process termination can leave a `RUNNING` row for investigation.
 - Silver merges on `(location_id, forecast_time)`. Gold merges on `(location_id, forecast_date)`. Re-running a city/date range updates existing logical records instead of duplicating them.
 - Bronze is append-only by design and stores each successful pull.
 

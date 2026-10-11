@@ -78,6 +78,18 @@ def main() -> None:
     }
     audit_id = start_job_audit(spark, args.run_id, task_layers[args.task], parameters)
     metrics = {}
+
+    def city_outcome_summary() -> str | None:
+        """Format Bronze city successes and failures for the job audit reason."""
+        if args.task != "ingest_bronze":
+            return None
+        successful = metrics.get("successful_cities", [])
+        failed = metrics.get("failed_cities", [])
+        return (
+            f"Successful cities: {', '.join(successful) if successful else 'None'}; "
+            f"Failed cities: {'; '.join(failed) if failed else 'None'}"
+        )
+
     try:
         if args.task == "ingest_bronze":
             from weather_pipeline.bronze.ingest import ingest_bronze
@@ -91,14 +103,20 @@ def main() -> None:
     except Exception as exc:
         logging.exception("Task %s failed for run_id=%s", args.task, args.run_id)
         try:
+            reason_parts = [f"{type(exc).__name__}: {exc}"[:3000]]
+            outcome_summary = city_outcome_summary()
+            if outcome_summary:
+                reason_parts.append(outcome_summary)
             finish_job_audit(
-                spark, audit_id, "FAILED", f"{type(exc).__name__}: {exc}"[:4000], metrics
+                spark, audit_id, "FAILED", "; ".join(reason_parts)[:4000], metrics
             )
         except Exception:
             logging.exception("Could not finalize failed job audit for audit_id=%s", audit_id)
         raise
     else:
-        finish_job_audit(spark, audit_id, "SUCCESS", metrics=metrics)
+        finish_job_audit(
+            spark, audit_id, "SUCCESS", reason=city_outcome_summary(), metrics=metrics
+        )
 
 
 if __name__ == "__main__":

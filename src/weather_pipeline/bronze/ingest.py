@@ -5,7 +5,7 @@ import os
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType
 from ..common.api_client import fetch_forecast
-from ..common.config import selected_locations, table_name
+from ..common.config import ALL_LOCATIONS, resolve_location_selection, table_name
 from ..common.notifications import send_failure_summary
 from ..common.utils import utc_now_iso, safe_identifier
 from ..common.schemas import detect_payload_schema_changes
@@ -52,7 +52,7 @@ def ingest_bronze(spark: SparkSession, run_id: str, metrics: dict | None = None)
         metrics: Optional dictionary populated with attempted, ingested, and failed counts.
 
     Raises:
-        RuntimeError: If every selected location fails to return a usable payload.
+        RuntimeError: If no payload is ingested from the valid selected locations.
     """
     catalog = safe_identifier(os.getenv("WEATHER_CATALOG", "workspace"))
     schema = safe_identifier(os.getenv("WEATHER_SCHEMA", "weather_api_dev"))
@@ -63,9 +63,22 @@ def ingest_bronze(spark: SparkSession, run_id: str, metrics: dict | None = None)
     audit_table = table_name("location_audit")
 
     raw_rows, audit_rows, schema_audit_rows, failures = [], [], [], []
-    locations = selected_locations()
+    locations, skipped_city_ids = resolve_location_selection()
     if metrics is not None:
-        metrics.update(input_row_count=len(locations), output_row_count=0, rejected_row_count=0)
+        metrics.update(
+            input_row_count=len(locations) + len(skipped_city_ids),
+            output_row_count=0,
+            rejected_row_count=len(skipped_city_ids),
+            successful_cities=[],
+            failed_cities=[f"{city_id}: unknown city ID; skipped" for city_id in skipped_city_ids],
+        )
+    allowed_ids = ", ".join(x.location_id for x in ALL_LOCATIONS)
+    if skipped_city_ids:
+        for city_id in skipped_city_ids:
+            audit_rows.append((
+                str(run_id), city_id, city_id, "SKIPPED",
+                f"Unknown city ID; skipped. Allowed IDs: {allowed_ids}", utc_now_iso(),
+            ))
     # A new session per task avoids sharing mutable HTTP state across tasks.
     import requests
     session = requests.Session()
@@ -80,6 +93,8 @@ def ingest_bronze(spark: SparkSession, run_id: str, metrics: dict | None = None)
                 str(location.latitude), str(location.longitude),
                 fetched_at, json.dumps(payload, separators=(",", ":")),
             ))
+            if metrics is not None:
+                metrics["successful_cities"].append(location.name)
             for change in detect_payload_schema_changes(payload):
                 schema_audit_rows.append((
                     str(run_id), location.location_id, change["field_path"],
@@ -90,10 +105,15 @@ def ingest_bronze(spark: SparkSession, run_id: str, metrics: dict | None = None)
         except Exception as exc:
             message = f"{type(exc).__name__}: {exc}"[:4000]
             failures.append(f"{location.name} ({location.location_id}): {message}")
+            if metrics is not None:
+                metrics["failed_cities"].append(f"{location.name}: {message}")
             audit_rows.append((str(run_id), location.location_id, location.name, "FAILED", message, now))
 
     if metrics is not None:
-        metrics.update(output_row_count=len(raw_rows), rejected_row_count=len(failures))
+        metrics.update(
+            output_row_count=len(raw_rows),
+            rejected_row_count=len(skipped_city_ids) + len(failures),
+        )
 
     if raw_rows:
         spark.createDataFrame(raw_rows, BRONZE_SCHEMA).write.format("delta").mode("append").saveAsTable(bronze_table)
@@ -108,25 +128,28 @@ def ingest_bronze(spark: SparkSession, run_id: str, metrics: dict | None = None)
                 *row[:6],
             )
 
-    if failures:
+    if failures or skipped_city_ids:
         requested_dates = f"{os.getenv('WEATHER_START_DATE', 'default forecast window')} to {os.getenv('WEATHER_END_DATE', 'default forecast window')}"
+        issues = list(failures)
+        if skipped_city_ids:
+            issues.extend(f"{city_id}: unknown city ID; skipped" for city_id in skipped_city_ids)
         body = (
-            f"Weather ingestion had city-level failures.\nRun ID: {run_id}\n"
-            f"Requested cities: {', '.join(x.name for x in locations)}\n"
-            f"Requested date scope: {requested_dates}\n\nFailed cities:\n- "
-            + "\n- ".join(failures)
+            f"Weather ingestion had city-level failures or skipped IDs.\nRun ID: {run_id}\n"
+            f"Requested cities: {os.getenv('WEATHER_CITIES', 'all')}\n"
+            f"Requested date scope: {requested_dates}\n\nCity issues:\n- "
+            + "\n- ".join(issues)
         )
         send_failure_summary(
-            "Open-Meteo pipeline: city ingestion failures",
+            "Open-Meteo pipeline: city ingestion warnings",
             body,
         )
         logger.warning(body)
 
     if not raw_rows:
         body = (
-            f"All selected city API calls failed after retries.\nRun ID: {run_id}\n"
-            f"Cities: {', '.join(x.name for x in locations)}\n\n"
-            + "\n".join(failures)
+            f"No city payloads were ingested.\nRun ID: {run_id}\n"
+            f"Requested cities: {os.getenv('WEATHER_CITIES', 'all')}\n\n"
+            + "\n".join(failures + [f"{city_id}: unknown city ID; skipped" for city_id in skipped_city_ids])
         )
         send_failure_summary("Open-Meteo pipeline FAILED: no cities ingested", body)
-        raise RuntimeError("All selected city API calls failed after 3 attempts; stopping pipeline. " + " | ".join(failures))
+        raise RuntimeError("No city payloads ingested; check city IDs and API failures. " + " | ".join(failures + list(skipped_city_ids)))
