@@ -12,10 +12,13 @@ sync:
 variables:
   catalog:
     description: Unity Catalog catalog available in the target Databricks workspace
-    default: main
+    default: workspace
   schema:
     description: Environment-specific schema for weather tables
-    default: weather_pipeline_dev
+    default: weather_api_dev
+  audit_schema:
+    description: Schema for shared pipeline audit tables
+    default: audit
   notification_email:
     description: Email address for Databricks job failure notifications
     default: rekhaghugtyal98@gmail.com

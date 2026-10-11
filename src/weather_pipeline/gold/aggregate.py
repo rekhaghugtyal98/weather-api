@@ -4,8 +4,8 @@ from ..common.config import table_name
 from ..common.utils import safe_identifier
 
 def build_gold(spark: SparkSession, run_id: str) -> None:
-    catalog = safe_identifier(__import__("os").getenv("WEATHER_CATALOG", "main"))
-    schema = safe_identifier(__import__("os").getenv("WEATHER_SCHEMA", "weather_pipeline"))
+    catalog = safe_identifier(__import__("os").getenv("WEATHER_CATALOG", "workspace"))
+    schema = safe_identifier(__import__("os").getenv("WEATHER_SCHEMA", "weather_api_dev"))
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
     silver = spark.table(table_name("silver"))
     daily = silver.withColumn("forecast_date", F.to_date("forecast_time")).groupBy(

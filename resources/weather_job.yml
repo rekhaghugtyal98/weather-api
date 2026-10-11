@@ -36,6 +36,8 @@ resources:
               - ${var.catalog}
               - --schema
               - ${var.schema}
+              - --audit-schema
+              - ${var.audit_schema}
           environment_key: default
       environments:
         - environment_key: default
@@ -80,6 +82,8 @@ resources:
               - ${var.catalog}
               - --schema
               - ${var.schema}
+              - --audit-schema
+              - ${var.audit_schema}
           environment_key: default
       environments:
         - environment_key: default
@@ -124,6 +128,8 @@ resources:
               - ${var.catalog}
               - --schema
               - ${var.schema}
+              - --audit-schema
+              - ${var.audit_schema}
           environment_key: default
       environments:
         - environment_key: default

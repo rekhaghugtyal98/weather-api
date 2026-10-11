@@ -40,9 +40,11 @@ SCHEMA_AUDIT_SCHEMA = StructType([
 ])
 
 def ingest_bronze(spark: SparkSession, run_id: str) -> None:
-    catalog = safe_identifier(os.getenv("WEATHER_CATALOG", "main"))
-    schema = safe_identifier(os.getenv("WEATHER_SCHEMA", "weather_pipeline"))
+    catalog = safe_identifier(os.getenv("WEATHER_CATALOG", "workspace"))
+    schema = safe_identifier(os.getenv("WEATHER_SCHEMA", "weather_api_dev"))
+    audit_schema = safe_identifier(os.getenv("WEATHER_AUDIT_SCHEMA", "audit"))
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
+    spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{audit_schema}`")
     bronze_table = table_name("bronze")
     audit_table = table_name("location_audit")
 

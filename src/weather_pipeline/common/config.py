@@ -60,9 +60,20 @@ def requested_date_range():
 
 def table_name(layer: str) -> str:
     """Build a three-part Unity Catalog table name from environment variables."""
-    catalog = os.getenv("WEATHER_CATALOG", "main")
-    schema = os.getenv("WEATHER_SCHEMA", "weather_pipeline")
-    allowed = {"bronze", "silver", "gold", "quarantine", "location_audit", "schema_audit"}
-    if layer not in allowed:
+    catalog = os.getenv("WEATHER_CATALOG", "workspace")
+    schema = os.getenv("WEATHER_SCHEMA", "weather_api_dev")
+    audit_schema = os.getenv("WEATHER_AUDIT_SCHEMA", "audit")
+    table_names = {
+        "bronze": "weather_api_raw",
+        "silver": "weather_hourly_transformed",
+        "gold": "weather_daily_aggregation",
+        "quarantine": "weather_rejected_hourly_records",
+        "location_audit": "weather_ingestion_audit",
+        "schema_audit": "weather_api_schema_changes",
+    }
+    if layer not in table_names:
         raise ValueError(f"Unsupported table layer: {layer}")
-    return f"`{catalog}`.`{schema}`.`weather_{layer}`"
+    selected_schema = audit_schema if layer in {
+        "quarantine", "location_audit", "schema_audit"
+    } else schema
+    return f"`{catalog}`.`{selected_schema}`.`{table_names[layer]}`"
