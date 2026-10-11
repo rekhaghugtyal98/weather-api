@@ -7,7 +7,18 @@ from email.message import EmailMessage
 logger = logging.getLogger(__name__)
 
 def send_failure_summary(subject: str, body: str) -> bool:
-    """Send an email if SMTP settings are configured; never mask the pipeline's main result."""
+    """Send a pipeline summary email when SMTP settings are configured.
+
+    Missing SMTP configuration or delivery errors are logged and return ``False``
+    so notification problems do not replace the pipeline's original result.
+
+    Args:
+        subject: Email subject line.
+        body: Plain-text message body.
+
+    Returns:
+        ``True`` if the email was sent, otherwise ``False``.
+    """
     host = os.getenv("WEATHER_SMTP_HOST", "").strip()
     sender = os.getenv("WEATHER_SMTP_FROM", "").strip()
     recipient = os.getenv("WEATHER_ALERT_EMAIL", "").strip()

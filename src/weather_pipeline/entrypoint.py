@@ -1,4 +1,4 @@
-﻿"""Databricks Python-file entrypoint for the weather pipeline jobs."""
+"""Databricks Python-file entrypoint for the weather pipeline jobs."""
 import argparse
 import logging
 import os
@@ -7,6 +7,15 @@ from pathlib import Path
 
 
 def main() -> None:
+    """Parse Databricks job arguments, configure runtime settings, and run a pipeline task.
+
+    The task name, run ID, location/date scope, and catalog settings are read from
+    command-line arguments. The selected Bronze, Silver, or Gold task is executed
+    with job-audit status recorded before and after the run.
+
+    Raises:
+        Exception: Re-raises task failures after recording a failed audit status.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", required=True, choices=("ingest_bronze", "transform_silver", "build_gold"))
     parser.add_argument("--run-id", required=True)
@@ -57,25 +66,28 @@ def main() -> None:
         "audit_schema": args.audit_schema,
     }
     audit_id = start_job_audit(spark, args.run_id, task_layers[args.task], parameters)
+    metrics = {}
     try:
         if args.task == "ingest_bronze":
             from weather_pipeline.bronze.ingest import ingest_bronze
-            ingest_bronze(spark, args.run_id)
+            ingest_bronze(spark, args.run_id, metrics)
         elif args.task == "transform_silver":
             from weather_pipeline.silver.transform import transform_silver
-            transform_silver(spark, args.run_id)
+            transform_silver(spark, args.run_id, metrics)
         else:
             from weather_pipeline.gold.aggregate import build_gold
-            build_gold(spark, args.run_id)
+            build_gold(spark, args.run_id, metrics)
     except Exception as exc:
         logging.exception("Task %s failed for run_id=%s", args.task, args.run_id)
         try:
-            finish_job_audit(spark, audit_id, "FAILED", f"{type(exc).__name__}: {exc}"[:4000])
+            finish_job_audit(
+                spark, audit_id, "FAILED", f"{type(exc).__name__}: {exc}"[:4000], metrics
+            )
         except Exception:
             logging.exception("Could not finalize failed job audit for audit_id=%s", audit_id)
         raise
     else:
-        finish_job_audit(spark, audit_id, "SUCCESS")
+        finish_job_audit(spark, audit_id, "SUCCESS", metrics=metrics)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,15 @@
 
 
 def _spark_schema(name):
-    """Build a Spark schema on demand so pure validation does not require PySpark."""
+    """Build one of this module's Spark SQL schemas on demand.
+
+    Args:
+        name: Schema constant name, either ``HOURLY_SCHEMA`` or
+            ``API_RESPONSE_SCHEMA``.
+
+    Returns:
+        The requested PySpark ``StructType`` schema.
+    """
     from pyspark.sql.types import (
         ArrayType, DoubleType, IntegerType, StringType, StructField, StructType
     )
@@ -25,6 +33,17 @@ def _spark_schema(name):
 
 
 def __getattr__(name):
+    """Resolve Spark schema constants lazily when accessed as module attributes.
+
+    Args:
+        name: Requested module attribute name.
+
+    Returns:
+        The corresponding Spark schema for a supported schema constant.
+
+    Raises:
+        AttributeError: If ``name`` is not a supported module attribute.
+    """
     if name in {"HOURLY_SCHEMA", "API_RESPONSE_SCHEMA"}:
         return _spark_schema(name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -44,6 +63,14 @@ EXPECTED_PAYLOAD_SCHEMA = {
 
 
 def _json_type(value):
+    """Describe a Python value using a compact JSON-style type name.
+
+    Args:
+        value: Value to classify.
+
+    Returns:
+        A string such as ``number``, ``object``, or ``array<string>``.
+    """
     if value is None:
         return "null"
     if isinstance(value, bool):
@@ -61,7 +88,18 @@ def _json_type(value):
 
 
 def detect_payload_schema_changes(payload):
-    """Report missing, newly added, and type-changed fields against our API contract."""
+    """Compare an API payload with the expected Open-Meteo response contract.
+
+    Checks expected top-level and hourly fields and reports missing, new, or
+    incompatible fields. Compatible array element types are accepted.
+
+    Args:
+        payload: Decoded API response value, normally a dictionary.
+
+    Returns:
+        A list of dictionaries describing each schema change, including its field
+        path, change type, expected type, and observed type.
+    """
     if not isinstance(payload, dict):
         return [{"field_path": "$", "change_type": "type_changed",
                  "expected_type": "object", "observed_type": _json_type(payload)}]

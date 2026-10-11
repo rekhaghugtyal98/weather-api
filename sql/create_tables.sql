@@ -80,5 +80,8 @@ CREATE TABLE IF NOT EXISTS workspace.audit.weather_job_audit (
   start_time TIMESTAMP NOT NULL,
   end_time TIMESTAMP,
   reason STRING,
-  parameters_json STRING
+  parameters_json STRING,
+  input_row_count BIGINT,
+  output_row_count BIGINT,
+  rejected_row_count BIGINT
 ) USING DELTA;
