@@ -1,55 +1,55 @@
--- Dashboard query set for the dev schema. For test/prod, replace
--- workspace.weather_api_dev with workspace.weather_api_test/prod.
+-- Four focused dashboard tiles for the dev schema. For test/prod, replace
+-- workspace.weather_api_dev with the target data schema.
 
--- Tile 1: latest daily city comparison
+-- Tile 1: daily Gold weather trends by city.
 SELECT forecast_date, location_name, avg_temperature_c, min_temperature_c,
        max_temperature_c, total_precipitation_mm, avg_wind_speed_kmh
 FROM workspace.weather_api_dev.weather_daily_aggregation
-ORDER BY forecast_date DESC, location_name;
+ORDER BY forecast_date, location_name;
 
--- Tile 2: precipitation by city and day
-SELECT forecast_date, location_name, total_precipitation_mm
+-- Tile 2: total precipitation by city across the dates currently in Gold.
+SELECT location_name, SUM(total_precipitation_mm) AS total_precipitation_mm
 FROM workspace.weather_api_dev.weather_daily_aggregation
-ORDER BY forecast_date DESC, location_name;
-
--- Tile 3: latest API outcome by city
-WITH ranked AS (
-  SELECT *, row_number() OVER (PARTITION BY location_id ORDER BY event_time DESC) AS rn
-  FROM workspace.audit.weather_ingestion_audit
-)
-SELECT location_name, status, event_time, error_message
-FROM ranked WHERE rn = 1
-ORDER BY status DESC, location_name;
-
--- Tile 4: ingested and rejected hourly records per run
-SELECT b.run_id,
-       count(DISTINCT concat_ws('|', b.location_id, b.fetched_at)) AS bronze_pulls,
-       count(DISTINCT concat_ws('|', q.location_id, q.forecast_time)) AS rejected_hourly_rows,
-       max(b.fetched_at) AS latest_bronze_fetch
-FROM workspace.weather_api_dev.weather_api_raw b
-LEFT JOIN workspace.audit.weather_rejected_hourly_records q ON b.run_id = q.run_id
-GROUP BY b.run_id
-ORDER BY latest_bronze_fetch DESC;
-
--- Tile 5: hourly record freshness in Silver
-SELECT location_name, max(forecast_time) AS latest_forecast_time,
-       count(*) AS loaded_hourly_rows
-FROM workspace.weather_api_dev.weather_hourly_transformed
 GROUP BY location_name
-ORDER BY location_name;
+ORDER BY total_precipitation_mm DESC;
 
--- Tile 6: observed API schema changes
-SELECT run_id, location_id, field_path, change_type,
-       expected_type, observed_type, event_time
-FROM workspace.audit.weather_api_schema_changes
-ORDER BY event_time DESC;
-
--- Tile 7: one job status row per execution; reruns have separate audit IDs
-SELECT run_id, layer_type, status, start_time, end_time, reason
+-- Tile 3: recent pipeline executions with input, output, and rejected counts.
+SELECT run_id, layer_type, status, start_time, end_time,
+       input_row_count, output_row_count, rejected_row_count, reason
 FROM workspace.audit.weather_job_audit
-ORDER BY start_time DESC;
+ORDER BY start_time DESC
+LIMIT 50;
 
--- Detail query: invalid records and quarantine reasons
+-- Tile 4: loaded-record freshness and quarantined row counts by city.
+WITH locations AS (
+  SELECT location_id, location_name
+  FROM workspace.weather_api_dev.weather_hourly_transformed
+  GROUP BY location_id, location_name
+  UNION
+  SELECT location_id, location_name
+  FROM workspace.audit.weather_rejected_hourly_records
+  GROUP BY location_id, location_name
+), silver_health AS (
+  SELECT location_id, COUNT(*) AS loaded_hourly_rows,
+         MAX(forecast_time) AS latest_forecast_time
+  FROM workspace.weather_api_dev.weather_hourly_transformed
+  GROUP BY location_id
+), rejected_health AS (
+  SELECT location_id, COUNT(*) AS rejected_hourly_rows
+  FROM workspace.audit.weather_rejected_hourly_records
+  GROUP BY location_id
+)
+SELECT locations.location_name,
+       COALESCE(silver_health.loaded_hourly_rows, 0) AS loaded_hourly_rows,
+       silver_health.latest_forecast_time,
+       COALESCE(rejected_health.rejected_hourly_rows, 0) AS rejected_hourly_rows
+FROM locations
+LEFT JOIN silver_health USING (location_id)
+LEFT JOIN rejected_health USING (location_id)
+ORDER BY locations.location_name;
+
+-- Optional drill-down: rejected records and their quarantine reasons.
 SELECT run_id, location_name, forecast_time, quarantine_reason
 FROM workspace.audit.weather_rejected_hourly_records
-ORDER BY forecast_time DESC;
+ORDER BY forecast_time DESC
+LIMIT 100;

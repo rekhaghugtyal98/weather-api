@@ -13,6 +13,10 @@ resources:
           default: ""
         - name: weather_end_date
           default: ""
+        - name: weather_api_url
+          default: ${var.api_url}
+        - name: weather_forecast_days
+          default: ${var.forecast_days}
       email_notifications:
         on_failure:
           - ${var.notification_email}
@@ -38,6 +42,10 @@ resources:
               - ${var.schema}
               - --audit-schema
               - ${var.audit_schema}
+              - --api-url
+              - "{{job.parameters.weather_api_url}}"
+              - --forecast-days
+              - "{{job.parameters.weather_forecast_days}}"
           environment_key: default
       environments:
         - environment_key: default
@@ -59,6 +67,10 @@ resources:
           default: ""
         - name: weather_end_date
           default: ""
+        - name: weather_api_url
+          default: ${var.api_url}
+        - name: weather_forecast_days
+          default: ${var.forecast_days}
       email_notifications:
         on_failure:
           - ${var.notification_email}
@@ -84,6 +96,10 @@ resources:
               - ${var.schema}
               - --audit-schema
               - ${var.audit_schema}
+              - --api-url
+              - "{{job.parameters.weather_api_url}}"
+              - --forecast-days
+              - "{{job.parameters.weather_forecast_days}}"
           environment_key: default
       environments:
         - environment_key: default
@@ -105,6 +121,10 @@ resources:
           default: ""
         - name: weather_end_date
           default: ""
+        - name: weather_api_url
+          default: ${var.api_url}
+        - name: weather_forecast_days
+          default: ${var.forecast_days}
       email_notifications:
         on_failure:
           - ${var.notification_email}
@@ -130,6 +150,10 @@ resources:
               - ${var.schema}
               - --audit-schema
               - ${var.audit_schema}
+              - --api-url
+              - "{{job.parameters.weather_api_url}}"
+              - --forecast-days
+              - "{{job.parameters.weather_forecast_days}}"
           environment_key: default
       environments:
         - environment_key: default
@@ -153,6 +177,10 @@ resources:
           default: ""
         - name: weather_end_date
           default: ""
+        - name: weather_api_url
+          default: ${var.api_url}
+        - name: weather_forecast_days
+          default: ${var.forecast_days}
       email_notifications:
         on_failure:
           - ${var.notification_email}
@@ -166,6 +194,8 @@ resources:
               weather_cities: "{{job.parameters.weather_cities}}"
               weather_start_date: "{{job.parameters.weather_start_date}}"
               weather_end_date: "{{job.parameters.weather_end_date}}"
+              weather_api_url: "{{job.parameters.weather_api_url}}"
+              weather_forecast_days: "{{job.parameters.weather_forecast_days}}"
         - task_key: run_silver_pipeline
           description: Run Silver only after the Bronze child job succeeds.
           depends_on:
@@ -177,6 +207,8 @@ resources:
               weather_cities: "{{job.parameters.weather_cities}}"
               weather_start_date: "{{job.parameters.weather_start_date}}"
               weather_end_date: "{{job.parameters.weather_end_date}}"
+              weather_api_url: "{{job.parameters.weather_api_url}}"
+              weather_forecast_days: "{{job.parameters.weather_forecast_days}}"
         - task_key: run_gold_pipeline
           description: Run Gold only after the Silver child job succeeds.
           depends_on:
@@ -188,3 +220,5 @@ resources:
               weather_cities: "{{job.parameters.weather_cities}}"
               weather_start_date: "{{job.parameters.weather_start_date}}"
               weather_end_date: "{{job.parameters.weather_end_date}}"
+              weather_api_url: "{{job.parameters.weather_api_url}}"
+              weather_forecast_days: "{{job.parameters.weather_forecast_days}}"

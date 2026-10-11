@@ -9,9 +9,10 @@ from pathlib import Path
 def main() -> None:
     """Parse Databricks job arguments, configure runtime settings, and run a pipeline task.
 
-    The task name, run ID, location/date scope, and catalog settings are read from
-    command-line arguments. The selected Bronze, Silver, or Gold task is executed
-    with job-audit status recorded before and after the run.
+    The task name, run ID, location/date scope, catalog, API endpoint, and forecast
+    length are read from command-line arguments. Runtime environment variables are
+    set before importing pipeline configuration. The selected Bronze, Silver, or
+    Gold task runs with audit status and row counts recorded.
 
     Raises:
         Exception: Re-raises task failures after recording a failed audit status.
@@ -25,6 +26,8 @@ def main() -> None:
     parser.add_argument("--catalog", default="workspace")
     parser.add_argument("--schema", default="weather_api_dev")
     parser.add_argument("--audit-schema", default="audit")
+    parser.add_argument("--api-url")
+    parser.add_argument("--forecast-days", type=int)
     args = parser.parse_args()
 
     # Databricks may execute this file via exec(compile(...)), where __file__ is unset.
@@ -36,6 +39,12 @@ def main() -> None:
     os.environ["WEATHER_CATALOG"] = args.catalog
     os.environ["WEATHER_SCHEMA"] = args.schema
     os.environ["WEATHER_AUDIT_SCHEMA"] = args.audit_schema
+    if args.api_url:
+        os.environ["OPEN_METEO_API_URL"] = args.api_url
+    if args.forecast_days is not None:
+        if not 3 <= args.forecast_days <= 7:
+            parser.error("--forecast-days must be between 3 and 7")
+        os.environ["WEATHER_FORECAST_DAYS"] = str(args.forecast_days)
     if args.cities.strip().lower() != "all":
         os.environ["WEATHER_CITIES"] = args.cities
     else:
@@ -64,6 +73,8 @@ def main() -> None:
         "catalog": args.catalog,
         "schema": args.schema,
         "audit_schema": args.audit_schema,
+        "api_url": args.api_url or os.getenv("OPEN_METEO_API_URL", "https://api.open-meteo.com/v1/forecast"),
+        "forecast_days": args.forecast_days or int(os.getenv("WEATHER_FORECAST_DAYS", "7")),
     }
     audit_id = start_job_audit(spark, args.run_id, task_layers[args.task], parameters)
     metrics = {}
