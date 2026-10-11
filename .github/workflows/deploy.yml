@@ -1,0 +1,101 @@
+name: Test and deploy weather pipeline (multi-workspace)
+
+on:
+  pull_request:
+    branches: [dev, test, main]
+  push:
+    branches: [dev, test, main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Databricks workspace target
+        required: true
+        type: choice
+        options:
+          - dev
+          - test
+          - prod
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run unit tests
+        run: pytest -v
+
+  choose-target:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.resolve.outputs.target }}
+    steps:
+      - id: resolve
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TARGET="${{ inputs.target }}"
+          else
+            case "${GITHUB_REF_NAME}" in
+              dev) TARGET="dev" ;;
+              test) TARGET="test" ;;
+              main) TARGET="prod" ;;
+              *) echo "No deployment target for branch ${GITHUB_REF_NAME}"; exit 1 ;;
+            esac
+          fi
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "Selected Databricks workspace target: $TARGET"
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: [test, choose-target]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.choose-target.outputs.target }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Configure credentials for the selected workspace
+        env:
+          DATABRICKS_HOST_SECRET: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN_SECRET: ${{ secrets.DATABRICKS_TOKEN }}
+          WEATHER_ALERT_EMAIL_SECRET: ${{ secrets.WEATHER_ALERT_EMAIL }}
+        run: |
+          if [ -z "$DATABRICKS_HOST_SECRET" ] || [ -z "$DATABRICKS_TOKEN_SECRET" ] || [ -z "$WEATHER_ALERT_EMAIL_SECRET" ]; then
+            echo "Set DATABRICKS_HOST, DATABRICKS_TOKEN, and WEATHER_ALERT_EMAIL in the selected GitHub Environment." >&2
+            exit 1
+          fi
+          echo "DATABRICKS_HOST=$DATABRICKS_HOST_SECRET" >> "$GITHUB_ENV"
+          echo "DATABRICKS_TOKEN=$DATABRICKS_TOKEN_SECRET" >> "$GITHUB_ENV"
+          echo "WEATHER_ALERT_EMAIL=$WEATHER_ALERT_EMAIL_SECRET" >> "$GITHUB_ENV"
+
+      - name: Validate bundle
+        run: databricks bundle validate -t "${{ needs.choose-target.outputs.target }}"
+
+      - name: Deploy bundle
+        run: databricks bundle deploy -t "${{ needs.choose-target.outputs.target }}"
+
+      - name: Run weather pipeline orchestrator
+        run: databricks bundle run weather_pipeline_orchestrator -t "${{ needs.choose-target.outputs.target }}"

@@ -1,0 +1,53 @@
+bundle:
+  name: open_meteo_weather_pipeline
+
+include:
+  - resources/*.yml
+
+sync:
+  include:
+    - src/**
+    - sql/**
+
+variables:
+  catalog:
+    description: Unity Catalog catalog available in the target Databricks workspace
+    default: main
+  schema:
+    description: Environment-specific schema for weather tables
+    default: weather_pipeline_dev
+  notification_email:
+    description: Email address for Databricks job failure notifications
+    default: YOUR_EMAIL@example.com
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: ${env.DATABRICKS_HOST}
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: main
+      schema: weather_pipeline_dev
+      notification_email: ${env.WEATHER_ALERT_EMAIL}
+
+  test:
+    mode: development
+    workspace:
+      host: ${env.DATABRICKS_HOST}
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: main
+      schema: weather_pipeline_test
+      notification_email: ${env.WEATHER_ALERT_EMAIL}
+
+  prod:
+    mode: development
+    workspace:
+      host: ${env.DATABRICKS_HOST}
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: main
+      schema: weather_pipeline_prod
+      notification_email: ${env.WEATHER_ALERT_EMAIL}

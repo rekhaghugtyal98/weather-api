@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open-meteo-weather-pipeline"
+version = "0.1.0"
+description = "Modular Open-Meteo Bronze/Silver/Gold pipeline for Databricks"
+requires-python = ">=3.10"
+dependencies = [
+  "requests>=2.31,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "pytest-mock>=3.12,<4",
+  "requests-mock>=1.11,<2",
+  "chispa>=0.10,<1",
+  "coverage>=7,<8",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
