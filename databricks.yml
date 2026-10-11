@@ -12,10 +12,13 @@ sync:
 variables:
   catalog:
     description: Unity Catalog catalog available in the target Databricks workspace
-    default: main
+    default: workspace
   schema:
     description: Environment-specific schema for weather tables
-    default: weather_pipeline_dev
+    default: weather_api_dev
+  audit_schema:
+    description: Schema for shared pipeline audit tables
+    default: audit
   notification_email:
     description: Email address for Databricks job failure notifications
     default: rekhaghugtyal98@gmail.com
@@ -27,21 +30,24 @@ targets:
     workspace:
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     variables:
-      catalog: main
-      schema: weather_pipeline_dev
+      catalog: workspace
+      schema: weather_api_dev
+      audit_schema: audit
 
   test:
     mode: development
     workspace:
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     variables:
-      catalog: main
-      schema: weather_pipeline_test
+      catalog: workspace
+      schema: weather_api_test
+      audit_schema: audit
 
   prod:
     mode: development
     workspace:
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     variables:
-      catalog: main
-      schema: weather_pipeline_prod
+      catalog: workspace
+      schema: weather_api_prod
+      audit_schema: audit

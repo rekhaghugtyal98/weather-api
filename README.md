@@ -24,7 +24,7 @@ pyproject.toml
 - Each city request gets **3 total attempts**: the first request plus **2 retries**.
 - A city that still fails is recorded in `weather_location_audit` and included in an email summary. Other successful cities continue through the pipeline.
 - If **all selected city requests fail**, Bronze ingestion fails after sending an email summary. Silver and Gold are skipped.
-- Invalid hourly records are written to `weather_quarantine`. If at least some valid rows remain, Silver processes those rows and emails a city/date summary. If **no valid hourly rows remain**, Silver fails and Gold is skipped.
+- Invalid hourly records are written to `weather_rejected_hourly_records`. If at least some valid rows remain, Silver processes those rows and emails a city/date summary. If **no valid hourly rows remain**, Silver fails and Gold is skipped.
 - Every Bronze response is checked against the expected Open-Meteo fields. Added, missing, or type-changed fields are appended to `weather_schema_audit` and logged; the raw payload remains available in Bronze for investigation.
 - Silver merges on `(location_id, forecast_time)`. Gold merges on `(location_id, forecast_date)`. Re-running a city/date range updates existing logical records instead of duplicating them.
 - Bronze is append-only by design and stores each successful pull.
@@ -37,7 +37,7 @@ The Databricks Job has overridable parameters:
 - `weather_start_date`: optional ISO date such as `2026-10-08`.
 - `weather_end_date`: optional ISO date such as `2026-10-10`. Set both dates together.
 - `WEATHER_FORECAST_DAYS`: number of forecast days when no date range is specified (default `7`).
-- `WEATHER_CATALOG` and `WEATHER_SCHEMA`: target Unity Catalog catalog/schema (defaults `main` / `weather_pipeline`).
+- `WEATHER_CATALOG`, `WEATHER_SCHEMA`, and `WEATHER_AUDIT_SCHEMA`: target Unity Catalog catalog/data schema/audit schema (defaults `workspace` / `weather_api_dev` / `audit`).
 
 Use **Run now with different parameters** on `weather_pipeline_orchestrator` to run the full chain for selected cities/dates. To recover a single layer, run `bronze_pipeline`, `silver_pipeline`, or `gold_pipeline` directly with matching parameters. Keep the same `run_id` when running Silver against a particular Bronze ingestion. The orchestrator run ID is passed to all child jobs.
 
@@ -70,7 +70,7 @@ Unit tests cover pure validation, API response edge cases, retry behavior, and s
 
 ## Dashboard queries
 
-`sql/dashboard_queries.sql` contains six dashboard tile queries for city weather comparisons, precipitation, latest API status, ingestion/rejection counts, Silver freshness, and API schema changes. The queries target `main.weather_pipeline_dev`; change the schema for the test or production workspace as needed. Run each query in Databricks SQL and add it as a visualization/tile to a dashboard. This repository contains the query set, but the dashboard itself must be created in the workspace.
+`sql/dashboard_queries.sql` contains six dashboard tile queries for city weather comparisons, precipitation, latest API status, ingestion/rejection counts, Silver freshness, and API schema changes. The queries target `workspace.weather_api_dev`; change the schema for the test or production workspace as needed. Run each query in Databricks SQL and add it as a visualization/tile to a dashboard. This repository contains the query set, but the dashboard itself must be created in the workspace.
 
 ## GitHub Actions secrets
 
@@ -104,14 +104,14 @@ If every selected city fails, Bronze fails and Silver/Gold do not run. If some c
 
 ## Tables
 
-- `main.<target_schema>.weather_bronze`
-- `main.<target_schema>.weather_silver`
-- `main.<target_schema>.weather_gold`
-- `main.<target_schema>.weather_quarantine`
-- `main.<target_schema>.weather_location_audit`
-- `main.<target_schema>.weather_schema_audit`
+- `workspace.<target_schema>.weather_api_raw` (Bronze)
+- `workspace.<target_schema>.weather_hourly_transformed` (Silver)
+- `workspace.<target_schema>.weather_daily_aggregation` (Gold)
+- `workspace.audit.weather_rejected_hourly_records`
+- `workspace.audit.weather_ingestion_audit`
+- `workspace.audit.weather_api_schema_changes`
 
-The target schemas are `weather_pipeline_dev`, `weather_pipeline_test`, and `weather_pipeline_prod`.
+The target schemas are `weather_api_dev`, `weather_api_test`, and `weather_api_prod`.
 
 ## Important
 
@@ -124,17 +124,17 @@ Each bundle target connects to its own Databricks workspace. The same account ca
 
 | Git branch | Bundle target | GitHub Environment | Databricks workspace | Data schema |
 |---|---|---|---|---|
-| `dev` | `dev` | `dev` | Development workspace | `main.weather_pipeline_dev` |
-| `test` | `test` | `test` | Test/staging workspace | `main.weather_pipeline_test` |
-| `main` | `prod` | `prod` | Production workspace | `main.weather_pipeline_prod` |
+| `dev` | `dev` | `dev` | Development workspace | `workspace.weather_api_dev` |
+| `test` | `test` | `test` | Test/staging workspace | `workspace.weather_api_test` |
+| `main` | `prod` | `prod` | Production workspace | `workspace.weather_api_prod` |
 
 ### Configure GitHub Environments and secrets
 
-In **GitHub → Settings → Environments**, create environments named exactly `dev`, `test`, and `prod`. In each environment, add these environment secrets (use the same secret names in all three environments, but use that environment's own values):
+In **GitHub → Settings → Environments**, create environments named exactly `dev`, `test`, and `prod`. In each environment, add these environment secrets and variable:
 
 - `DATABRICKS_HOST`: that workspace's URL, such as `https://<workspace-id>.cloud.databricks.com`
 - `DATABRICKS_TOKEN`: a credential scoped to that workspace
-- `WEATHER_ALERT_EMAIL`: the notification recipient for that environment
+- Variable `WEATHER_ALERT_EMAIL`: the notification recipient for that environment
 
 Do not add a single repository-wide `DATABRICKS_HOST` or `DATABRICKS_TOKEN`; the deploy job selects the GitHub Environment that matches the target, and GitHub supplies that environment's secrets. Never commit credentials. Add required reviewers to the `prod` GitHub Environment if production deployment needs approval.
 
@@ -148,4 +148,4 @@ Pull requests to `dev`, `test`, and `main` run tests but do not deploy. A push t
 4. Push to `dev` first and confirm the workflow validates, deploys, and completes a run in the development workspace.
 5. Promote changes through `test`, then `main`/`prod`.
 
-For local manual deployment, set `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, and `WEATHER_ALERT_EMAIL` to the values for the workspace you intend to target, then run the matching `databricks bundle validate/deploy/run -t <target>` commands. Verify that each workspace supports the configured Python-file task and serverless environment specification before relying on automated runs.
+For local manual deployment, set `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, and `BUNDLE_VAR_notification_email` to the values for the workspace you intend to target, then run the matching `databricks bundle validate/deploy/run -t <target>` commands. Verify that each workspace supports the configured Python-file task and serverless environment specification before relying on automated runs.
