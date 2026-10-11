@@ -1,22 +1,33 @@
-"""Spark schemas used by the pipeline."""
-from pyspark.sql.types import (
-    ArrayType, DoubleType, IntegerType, StringType, StructField, StructType
-)
+"""Spark schemas and dependency-free API payload drift checks."""
 
-HOURLY_SCHEMA = StructType([
-    StructField("time", ArrayType(StringType()), True),
-    StructField("temperature_2m", ArrayType(DoubleType()), True),
-    StructField("relative_humidity_2m", ArrayType(IntegerType()), True),
-    StructField("precipitation", ArrayType(DoubleType()), True),
-    StructField("wind_speed_10m", ArrayType(DoubleType()), True),
-])
 
-API_RESPONSE_SCHEMA = StructType([
-    StructField("latitude", DoubleType(), True),
-    StructField("longitude", DoubleType(), True),
-    StructField("timezone", StringType(), True),
-    StructField("hourly", HOURLY_SCHEMA, True),
-])
+def _spark_schema(name):
+    """Build a Spark schema on demand so pure validation does not require PySpark."""
+    from pyspark.sql.types import (
+        ArrayType, DoubleType, IntegerType, StringType, StructField, StructType
+    )
+
+    hourly = StructType([
+        StructField("time", ArrayType(StringType()), True),
+        StructField("temperature_2m", ArrayType(DoubleType()), True),
+        StructField("relative_humidity_2m", ArrayType(IntegerType()), True),
+        StructField("precipitation", ArrayType(DoubleType()), True),
+        StructField("wind_speed_10m", ArrayType(DoubleType()), True),
+    ])
+    if name == "HOURLY_SCHEMA":
+        return hourly
+    return StructType([
+        StructField("latitude", DoubleType(), True),
+        StructField("longitude", DoubleType(), True),
+        StructField("timezone", StringType(), True),
+        StructField("hourly", hourly, True),
+    ])
+
+
+def __getattr__(name):
+    if name in {"HOURLY_SCHEMA", "API_RESPONSE_SCHEMA"}:
+        return _spark_schema(name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Contract used to detect drift while Bronze still preserves the complete raw response.
 EXPECTED_PAYLOAD_SCHEMA = {
