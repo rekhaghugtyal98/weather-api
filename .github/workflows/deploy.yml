@@ -81,7 +81,7 @@ jobs:
         env:
           DATABRICKS_HOST_SECRET: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN_SECRET: ${{ secrets.DATABRICKS_TOKEN }}
-          WEATHER_ALERT_EMAIL_SECRET: ${{ secrets.WEATHER_ALERT_EMAIL }}
+          WEATHER_ALERT_EMAIL_SECRET: ${{ vars.WEATHER_ALERT_EMAIL }}
         run: |
           if [ -z "$DATABRICKS_HOST_SECRET" ] || [ -z "$DATABRICKS_TOKEN_SECRET" ] || [ -z "$WEATHER_ALERT_EMAIL_SECRET" ]; then
             echo "Set DATABRICKS_HOST, DATABRICKS_TOKEN, and WEATHER_ALERT_EMAIL in the selected GitHub Environment." >&2
