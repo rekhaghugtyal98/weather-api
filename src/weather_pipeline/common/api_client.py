@@ -15,13 +15,18 @@ def _invalid_hourly_rows(hourly: dict) -> list[str]:
     if not isinstance(times, list) or not times:
         return ["missing/empty hourly time array"]
     lengths = {"time": len(times)}
+    missing = []
     for field in fields:
         values = hourly.get(field)
         if not isinstance(values, list):
-            return [f"missing hourly array: {field}"]
-        lengths[field] = len(values)
+            missing.append(f"missing hourly array: {field}")
+        else:
+            lengths[field] = len(values)
+    issues = list(missing)
     if len(set(lengths.values())) != 1:
-        return [f"hourly array lengths differ: {lengths}"]
+        issues.append(f"hourly array lengths differ: {lengths}")
+    if issues:
+        return issues
 
     issues = []
     seen_timestamps = set()
