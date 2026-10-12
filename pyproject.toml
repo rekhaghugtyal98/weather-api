@@ -18,9 +18,9 @@ dev = [
   "requests-mock>=1.11,<2",
   "chispa>=0.10,<1",
   "coverage>=7,<8",
+  "pyspark>=4.2,<4.3",
 ]
 integration = [
-  "pyspark>=4.2,<4.3",
   "delta-spark>=4.4,<4.5",
 ]
 
