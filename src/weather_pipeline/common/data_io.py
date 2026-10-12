@@ -1,6 +1,8 @@
 """Shared Spark table read and write helpers."""
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -47,6 +49,35 @@ def write_data(
         columns = [partitionby] if isinstance(partitionby, str) else list(partitionby)
         writer = writer.partitionBy(*columns)
     writer.saveAsTable(table_name)
+
+
+def merge_data(
+    dataframe: DataFrame,
+    table_name: str,
+    merge_keys: str | Sequence[str],
+) -> None:
+    """Upsert a DataFrame into an existing Delta table by its key columns.
+
+    Matching rows are updated from the source DataFrame and new rows are
+    inserted. The source and target tables must have compatible columns, and
+    the target Delta table must already exist.
+    """
+    keys = (merge_keys,) if isinstance(merge_keys, str) else tuple(merge_keys)
+    if not keys:
+        raise ValueError("merge_keys must contain at least one column")
+    if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) for key in keys):
+        raise ValueError("merge_keys must contain simple column names")
+
+    from delta.tables import DeltaTable
+
+    condition = " AND ".join(
+        f"target.`{key}` = source.`{key}`" for key in keys
+    )
+    target = DeltaTable.forName(dataframe.sparkSession, table_name).alias("target")
+    (target.merge(dataframe.alias("source"), condition)
+        .whenMatchedUpdateAll()
+        .whenNotMatchedInsertAll()
+        .execute())
 
 
 def _schema_merge_enabled(schema_mode: str) -> bool:

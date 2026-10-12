@@ -1,0 +1,5 @@
+[
+  {"location_id": "bengaluru", "location_name": "Bengaluru", "latitude": "12.9716", "longitude": "77.5946"},
+  {"location_id": "delhi", "location_name": "Delhi", "latitude": "28.6139", "longitude": "77.209"},
+  {"location_id": "mumbai", "location_name": "Mumbai", "latitude": "19.076", "longitude": "72.8777"}
+]

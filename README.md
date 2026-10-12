@@ -14,6 +14,11 @@ src/weather_pipeline/
   gold/         # daily aggregation and idempotent merge
   entrypoint.py # Python-file task entrypoint
 tests/
+  data/           # One API response file per city and expected rows per layer
+  spark/         # local Spark setup checks
+  bronze/        # Bronze ingestion tests
+  silver/        # Silver transform tests
+  gold/          # Gold aggregation tests
 sql/
 databricks.yml
 pyproject.toml
@@ -28,6 +33,7 @@ pyproject.toml
 - Every Bronze response is checked against the expected Open-Meteo fields. Added, missing, or type-changed fields are appended to `weather_schema_audit` and logged; the raw payload remains available in Bronze for investigation.
 - Each Bronze, Silver, and Gold task execution has one `weather_job_audit` row with run ID, layer, status, start/end time, parameters, failure reason, and input/output/rejected row counts. Bronze also records successful city names and failed or skipped city reasons in the job audit `reason` field. Counts represent attempted locations and ingested payloads in Bronze, Bronze payloads and valid/quarantined hourly records in Silver, and Silver hourly rows and daily aggregates in Gold. The row is updated from `RUNNING` to `SUCCESS` or `FAILED`; a rerun gets a separate row even when it reuses the same run ID. A hard process termination can leave a `RUNNING` row for investigation.
 - Silver merges on `(location_id, forecast_time)`. Gold merges on `(location_id, forecast_date)`. Re-running a city/date range updates existing logical records instead of duplicating them.
+- Provision the catalog, schemas, and Bronze, Silver, and Gold tables before running the layers. `sql/create_tables.sql` contains the initial table definitions; Silver and Gold expect their target tables to exist.
 - Bronze is append-only by design and stores each successful pull.
 
 ## Run only selected cities or dates
@@ -81,7 +87,8 @@ Run one test file at a time:
 
 ```powershell
 python -m pytest -v tests/test_api_client.py
-python -m pytest -v tests/test_validation.py
+python -m pytest -v tests/silver/test_transform.py
+python -m pytest -v tests/bronze/test_ingest.py
 ```
 
 To run one test function, provide its file and function name, for example:
@@ -90,16 +97,16 @@ To run one test function, provide its file and function name, for example:
 python -m pytest -v tests/test_api_client.py::test_fetch_forecast_retries_transient_api_failure_then_succeeds
 ```
 
-Unit tests cover validation, API response edge cases, retry behavior, and schema drift detection. Integration testing of Spark/Delta operations must be done in Databricks.
+Unit tests cover city and date parameter handling, SQL identifier safety, table naming, notification configuration and delivery failures, data I/O, hourly record validation, API response edge cases and retry behavior, and payload schema drift detection. Spark integration tests in `tests/bronze/`, `tests/silver/`, and `tests/gold/` exercise the pipeline layers against the shared fixture data.
 
-For a deterministic local start-to-finish pipeline run, install the Spark/Delta integration dependencies and run the fixture runner:
+To run the Spark layer tests locally, install the Spark/Delta integration dependencies and run pytest:
 
 ```powershell
 python -m pip install -e ".[dev,integration]"
-python tests/run_test_data_pipeline.py
+python -m pytest -v tests/spark tests/bronze tests/silver tests/gold
 ```
 
-`tests/sample_data.json` contains the API input and expected Bronze, Silver, and Gold rows. The runner reads the API sample instead of making a network call, runs each real layer in sequence, and checks each table against the expected sample rows. It uses a temporary local warehouse. Java must be installed; Delta downloads its matching JVM packages on the first run. On Windows, also set `HADOOP_HOME` to a Hadoop native package matching the Hadoop version bundled with PySpark; it must contain `bin/hadoop.dll` and `bin/winutils.exe`. Linux and macOS do not need those Windows binaries.
+`tests/data/` contains separate API response fixtures and expected Bronze, Silver, and Gold rows for Bengaluru, Delhi, and Mumbai across two forecast dates. Spark and layer tests use these fixtures instead of making network calls. They require the optional Spark/Delta integration dependencies and a local Java installation; Delta downloads its matching JVM packages on the first run. On Windows, also set `HADOOP_HOME` to a Hadoop native package matching the Hadoop version bundled with PySpark; it must contain `bin/hadoop.dll` and `bin/winutils.exe`. Linux and macOS do not need those Windows binaries. Tests skip when Spark or Delta dependencies are absent.
 
 ## Dashboard queries
 
@@ -166,7 +173,7 @@ The target schemas are `weather_api_dev`, `weather_api_test`, and `weather_api_p
 
 ## Shared Spark table I/O
 
-`weather_pipeline.common.data_io` provides `read_data` and `write_data` for registered Spark tables. Both take a data `format` and `table_name`. `schema_mode="merge"` enables Spark schema merging; `schema_mode="strict"` disables it. `write_data` also accepts `partitionby` as a column name or list of column names, and a separate `mode` argument (default `append`).
+`weather_pipeline.common.data_io` provides `read_data`, `write_data`, and `merge_data` for registered Spark tables. Read and write take a data `format` and `table_name`. `schema_mode="merge"` enables Spark schema merging; `schema_mode="strict"` disables it. `write_data` also accepts `partitionby` as a column name or list of column names, and a separate `mode` argument (default `append`). `merge_data` takes an existing Delta target table and one or more key columns, then updates matching rows and inserts new rows.
 
 ## Important
 

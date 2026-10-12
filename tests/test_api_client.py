@@ -49,6 +49,32 @@ def test_fetch_forecast_retries_transient_api_failure_then_succeeds():
     assert session.get.call_count == 2
 
 
+def test_fetch_forecast_requests_one_location_and_returns_its_response():
+    location = ALL_LOCATIONS[0]
+    payload = {
+        "hourly": {
+            "time": ["2026-10-10T00:00"],
+            "temperature_2m": [20],
+            "relative_humidity_2m": [50],
+            "precipitation": [0],
+            "wind_speed_10m": [3],
+        }
+    }
+    session = Mock()
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = payload
+    session.get.return_value = response
+
+    result = fetch_forecast(session, location)
+
+    assert result == payload
+    session.get.assert_called_once()
+    params = session.get.call_args.kwargs["params"]
+    assert params["latitude"] == location.latitude
+    assert params["longitude"] == location.longitude
+
+
 def test_fetch_forecast_raises_after_three_failed_attempts():
     session = Mock()
     session.get.side_effect = requests.ConnectionError("unreachable")

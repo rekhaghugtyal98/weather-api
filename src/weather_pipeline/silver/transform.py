@@ -1,11 +1,9 @@
 """Task 2: flatten, validate, quarantine and merge Bronze into Silver."""
 import logging
-import os
 from pyspark.sql import SparkSession, functions as F
 from ..common.config import table_name
 from ..common.notifications import send_failure_summary
-from ..common.utils import safe_identifier
-from ..common.data_io import read_data, write_data
+from ..common.data_io import merge_data, read_data, write_data
 from ..common.schemas import API_RESPONSE_SCHEMA
 
 logger = logging.getLogger(__name__)
@@ -15,7 +13,9 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
 
     The method parses and flattens hourly arrays, checks value ranges and duplicate
     keys, appends invalid records to quarantine, and merges valid records into the
-    Silver table. Invalid-record summaries are emailed when configured.
+    pre-provisioned Silver table. The configured catalog and schemas, plus the
+    Bronze, Silver, and quarantine tables, must already exist. Invalid-record
+    summaries are emailed when configured.
 
     Args:
         spark: Active Spark session used to read and write Delta tables.
@@ -26,11 +26,6 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
         RuntimeError: If this run has no Bronze payloads or produces no valid rows.
     """
     logger.info("Starting Silver transform: run_id=%s", run_id)
-    catalog = safe_identifier(os.getenv("WEATHER_CATALOG", "workspace"))
-    schema = safe_identifier(os.getenv("WEATHER_SCHEMA", "weather_api_dev"))
-    audit_schema = safe_identifier(os.getenv("WEATHER_AUDIT_SCHEMA", "audit"))
-    spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
-    spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{audit_schema}`")
     bronze = read_data(spark, "delta", table_name("bronze")).where(F.col("run_id") == str(run_id))
     bronze_count = bronze.count()
     logger.info("Silver input count: run_id=%s bronze_payloads=%s", run_id, bronze_count)
@@ -110,32 +105,7 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
         logger.error("Silver produced no valid rows: run_id=%s rejected_hourly_rows=%s", run_id, invalid_count)
         raise RuntimeError(f"No valid hourly records produced for run_id={run_id}; stopping downstream tasks")
 
-    valid.createOrReplaceTempView("incoming_weather_silver")
-    spark.sql(f"""
-        CREATE TABLE IF NOT EXISTS {table_name("silver")} (
-          run_id STRING, location_id STRING, location_name STRING,
-          forecast_time STRING, temperature_c DOUBLE, humidity_pct INT,
-          precipitation_mm DOUBLE, wind_speed_kmh DOUBLE, forecast_date DATE,
-          ingested_at STRING
-        ) USING DELTA
-        PARTITIONED BY (forecast_date)
-    """)
-    spark.sql(f"""
-        MERGE INTO {table_name("silver")} AS target
-        USING incoming_weather_silver AS source
-        ON target.location_id = source.location_id
-           AND target.forecast_time = source.forecast_time
-        WHEN MATCHED THEN UPDATE SET
-          target.run_id = source.run_id,
-          target.location_name = source.location_name,
-          target.forecast_date = source.forecast_date,
-          target.temperature_c = source.temperature_c,
-          target.humidity_pct = source.humidity_pct,
-          target.precipitation_mm = source.precipitation_mm,
-          target.wind_speed_kmh = source.wind_speed_kmh,
-          target.ingested_at = source.ingested_at
-        WHEN NOT MATCHED THEN INSERT *
-    """)
+    merge_data(valid, table_name("silver"), ("location_id", "forecast_time"))
     logger.info(
         "Silver merge completed: run_id=%s source_valid_rows=%s quarantined_rows=%s",
         run_id,
