@@ -72,9 +72,16 @@ def ingest_bronze(spark: SparkSession, run_id: str, metrics: dict | None = None)
             successful_cities=[],
             failed_cities=[f"{city_id}: unknown city ID; skipped" for city_id in skipped_city_ids],
         )
+    logger.info(
+        "Starting Bronze ingestion: run_id=%s selected_cities=%s skipped_city_ids=%s",
+        run_id,
+        ",".join(location.location_id for location in locations) or "none",
+        ",".join(skipped_city_ids) or "none",
+    )
     allowed_ids = ", ".join(x.location_id for x in ALL_LOCATIONS)
     if skipped_city_ids:
         for city_id in skipped_city_ids:
+            logger.warning("Skipping unknown city ID: run_id=%s city_id=%s", run_id, city_id)
             audit_rows.append((
                 str(run_id), city_id, city_id, "SKIPPED",
                 f"Unknown city ID; skipped. Allowed IDs: {allowed_ids}", utc_now_iso(),
@@ -95,6 +102,11 @@ def ingest_bronze(spark: SparkSession, run_id: str, metrics: dict | None = None)
             ))
             if metrics is not None:
                 metrics["successful_cities"].append(location.name)
+            logger.info(
+                "Fetched forecast: run_id=%s location_id=%s",
+                run_id,
+                location.location_id,
+            )
             for change in detect_payload_schema_changes(payload):
                 schema_audit_rows.append((
                     str(run_id), location.location_id, change["field_path"],
@@ -107,6 +119,12 @@ def ingest_bronze(spark: SparkSession, run_id: str, metrics: dict | None = None)
             failures.append(f"{location.name} ({location.location_id}): {message}")
             if metrics is not None:
                 metrics["failed_cities"].append(f"{location.name}: {message}")
+            logger.error(
+                "Forecast failed: run_id=%s location_id=%s error=%s",
+                run_id,
+                location.location_id,
+                message,
+            )
             audit_rows.append((str(run_id), location.location_id, location.name, "FAILED", message, now))
 
     if metrics is not None:
@@ -114,6 +132,15 @@ def ingest_bronze(spark: SparkSession, run_id: str, metrics: dict | None = None)
             output_row_count=len(raw_rows),
             rejected_row_count=len(skipped_city_ids) + len(failures),
         )
+    logger.info(
+        "Bronze ingestion counts: run_id=%s attempted=%s ingested=%s failed=%s skipped=%s schema_changes=%s",
+        run_id,
+        len(locations) + len(skipped_city_ids),
+        len(raw_rows),
+        len(failures),
+        len(skipped_city_ids),
+        len(schema_audit_rows),
+    )
 
     if raw_rows:
         spark.createDataFrame(raw_rows, BRONZE_SCHEMA).write.format("delta").mode("append").saveAsTable(bronze_table)
@@ -152,4 +179,7 @@ def ingest_bronze(spark: SparkSession, run_id: str, metrics: dict | None = None)
             + "\n".join(failures + [f"{city_id}: unknown city ID; skipped" for city_id in skipped_city_ids])
         )
         send_failure_summary("Open-Meteo pipeline FAILED: no cities ingested", body)
+        logger.error("Bronze ingestion produced no payloads: run_id=%s", run_id)
         raise RuntimeError("No city payloads ingested; check city IDs and API failures. " + " | ".join(failures + list(skipped_city_ids)))
+
+    logger.info("Bronze ingestion completed: run_id=%s ingested=%s", run_id, len(raw_rows))
