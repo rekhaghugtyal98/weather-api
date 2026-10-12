@@ -19,6 +19,10 @@ dev = [
   "chispa>=0.10,<1",
   "coverage>=7,<8",
 ]
+integration = [
+  "pyspark>=4.2,<4.3",
+  "delta-spark>=4.4,<4.5",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

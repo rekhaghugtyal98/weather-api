@@ -8,6 +8,7 @@ from ..common.api_client import fetch_forecast
 from ..common.config import ALL_LOCATIONS, resolve_location_selection, table_name
 from ..common.notifications import send_failure_summary
 from ..common.utils import utc_now_iso, safe_identifier
+from ..common.data_io import write_data
 from ..common.schemas import detect_payload_schema_changes
 
 logger = logging.getLogger(__name__)
@@ -143,12 +144,15 @@ def ingest_bronze(spark: SparkSession, run_id: str, metrics: dict | None = None)
     )
 
     if raw_rows:
-        spark.createDataFrame(raw_rows, BRONZE_SCHEMA).write.format("delta").mode("append").saveAsTable(bronze_table)
+        write_data(spark.createDataFrame(raw_rows, BRONZE_SCHEMA), "delta", bronze_table)
     if audit_rows:
-        spark.createDataFrame(audit_rows, AUDIT_SCHEMA).write.format("delta").mode("append").saveAsTable(audit_table)
+        write_data(spark.createDataFrame(audit_rows, AUDIT_SCHEMA), "delta", audit_table)
     if schema_audit_rows:
-        (spark.createDataFrame(schema_audit_rows, SCHEMA_AUDIT_SCHEMA)
-            .write.format("delta").mode("append").saveAsTable(table_name("schema_audit")))
+        write_data(
+            spark.createDataFrame(schema_audit_rows, SCHEMA_AUDIT_SCHEMA),
+            "delta",
+            table_name("schema_audit"),
+        )
         for row in schema_audit_rows:
             logger.warning(
                 "Open-Meteo schema change: run_id=%s location_id=%s field=%s change=%s expected=%s observed=%s",

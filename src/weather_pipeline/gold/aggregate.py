@@ -3,6 +3,9 @@ import logging
 from pyspark.sql import SparkSession, functions as F
 from ..common.config import table_name
 from ..common.utils import safe_identifier
+from ..common.data_io import read_data
+
+logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +24,7 @@ def build_gold(spark: SparkSession, run_id: str, metrics: dict | None = None) ->
     catalog = safe_identifier(__import__("os").getenv("WEATHER_CATALOG", "workspace"))
     schema = safe_identifier(__import__("os").getenv("WEATHER_SCHEMA", "weather_api_dev"))
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
-    silver = spark.table(table_name("silver"))
+    silver = read_data(spark, "delta", table_name("silver"))
     input_count = silver.count()
     logger.info("Gold input count: run_id=%s silver_hourly_rows=%s", run_id, input_count)
     if metrics is not None:
@@ -49,6 +52,7 @@ def build_gold(spark: SparkSession, run_id: str, metrics: dict | None = None) ->
           avg_humidity_pct DOUBLE, total_precipitation_mm DOUBLE,
           avg_wind_speed_kmh DOUBLE, hourly_record_count BIGINT, updated_at STRING
         ) USING DELTA
+        PARTITIONED BY (forecast_date)
     """)
     spark.sql(f"""
         MERGE INTO {table_name("gold")} AS target
