@@ -24,6 +24,7 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
     Raises:
         RuntimeError: If this run has no Bronze payloads or produces no valid rows.
     """
+    logger.info("Starting Silver transform: run_id=%s", run_id)
     catalog = safe_identifier(os.getenv("WEATHER_CATALOG", "workspace"))
     schema = safe_identifier(os.getenv("WEATHER_SCHEMA", "weather_api_dev"))
     audit_schema = safe_identifier(os.getenv("WEATHER_AUDIT_SCHEMA", "audit"))
@@ -31,9 +32,11 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{audit_schema}`")
     bronze = spark.table(table_name("bronze")).where(F.col("run_id") == str(run_id))
     bronze_count = bronze.count()
+    logger.info("Silver input count: run_id=%s bronze_payloads=%s", run_id, bronze_count)
     if metrics is not None:
         metrics.update(input_row_count=bronze_count, output_row_count=0, rejected_row_count=0)
     if bronze_count == 0:
+        logger.error("Silver has no Bronze input: run_id=%s", run_id)
         raise RuntimeError(f"No Bronze payloads found for run_id={run_id}")
 
     parsed = bronze.withColumn("api", F.from_json("payload_json", API_RESPONSE_SCHEMA))
@@ -78,6 +81,12 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
     invalid_count = invalid.count()
     if metrics is not None:
         metrics.update(output_row_count=valid_count, rejected_row_count=invalid_count)
+    logger.info(
+        "Silver validation counts: run_id=%s valid_hourly_rows=%s rejected_hourly_rows=%s",
+        run_id,
+        valid_count,
+        invalid_count,
+    )
 
     # Summarize invalid city/date coverage for notification, without failing if some good rows remain.
     invalid_summary = []
@@ -96,6 +105,7 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
             + ("\n".join(invalid_summary) if invalid_summary else "No valid rows found; inspect Bronze/API response.")
         )
         send_failure_summary("Open-Meteo pipeline FAILED: all records invalid", body)
+        logger.error("Silver produced no valid rows: run_id=%s rejected_hourly_rows=%s", run_id, invalid_count)
         raise RuntimeError(f"No valid hourly records produced for run_id={run_id}; stopping downstream tasks")
 
     valid.createOrReplaceTempView("incoming_weather_silver")
@@ -121,6 +131,12 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
           target.ingested_at = source.ingested_at
         WHEN NOT MATCHED THEN INSERT *
     """)
+    logger.info(
+        "Silver merge completed: run_id=%s source_valid_rows=%s quarantined_rows=%s",
+        run_id,
+        valid_count,
+        invalid_count,
+    )
 
     if invalid_summary:
         body = (
