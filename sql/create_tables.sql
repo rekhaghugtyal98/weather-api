@@ -23,8 +23,10 @@ CREATE TABLE IF NOT EXISTS workspace.weather_api_dev.weather_hourly_transformed 
   humidity_pct INT,
   precipitation_mm DOUBLE,
   wind_speed_kmh DOUBLE,
+  forecast_date DATE,
   ingested_at STRING
-) USING DELTA;
+) USING DELTA
+PARTITIONED BY (forecast_date);
 
 CREATE TABLE IF NOT EXISTS workspace.weather_api_dev.weather_daily_aggregation (
   location_id STRING,
@@ -38,7 +40,8 @@ CREATE TABLE IF NOT EXISTS workspace.weather_api_dev.weather_daily_aggregation (
   avg_wind_speed_kmh DOUBLE,
   hourly_record_count BIGINT,
   updated_at STRING
-) USING DELTA;
+) USING DELTA
+PARTITIONED BY (forecast_date);
 
 CREATE TABLE IF NOT EXISTS workspace.audit.weather_rejected_hourly_records (
   run_id STRING,

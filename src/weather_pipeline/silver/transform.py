@@ -5,6 +5,7 @@ from pyspark.sql import SparkSession, functions as F
 from ..common.config import table_name
 from ..common.notifications import send_failure_summary
 from ..common.utils import safe_identifier
+from ..common.data_io import read_data, write_data
 from ..common.schemas import API_RESPONSE_SCHEMA
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
     audit_schema = safe_identifier(os.getenv("WEATHER_AUDIT_SCHEMA", "audit"))
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{schema}`")
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{catalog}`.`{audit_schema}`")
-    bronze = spark.table(table_name("bronze")).where(F.col("run_id") == str(run_id))
+    bronze = read_data(spark, "delta", table_name("bronze")).where(F.col("run_id") == str(run_id))
     bronze_count = bronze.count()
     logger.info("Silver input count: run_id=%s bronze_payloads=%s", run_id, bronze_count)
     if metrics is not None:
@@ -54,6 +55,7 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
         F.col("hour.humidity").cast("int").alias("humidity_pct"),
         F.col("hour.precipitation").cast("double").alias("precipitation_mm"),
         F.col("hour.wind").cast("double").alias("wind_speed_kmh"),
+        F.to_date(F.col("hour.time")).alias("forecast_date"),
         F.current_timestamp().cast("string").alias("ingested_at"),
     )
     valid_condition = (
@@ -97,7 +99,7 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
                 .groupBy("location_name", "forecast_date").count() \
                 .withColumnRenamed("count", "invalid_count").orderBy("location_name", "forecast_date").collect()
         ]
-        invalid.write.format("delta").mode("append").option("mergeSchema", "true").saveAsTable(table_name("quarantine"))
+        write_data(invalid, "delta", table_name("quarantine"), schema_mode="merge")
 
     if valid_count == 0:
         body = (
@@ -113,8 +115,10 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
         CREATE TABLE IF NOT EXISTS {table_name("silver")} (
           run_id STRING, location_id STRING, location_name STRING,
           forecast_time STRING, temperature_c DOUBLE, humidity_pct INT,
-          precipitation_mm DOUBLE, wind_speed_kmh DOUBLE, ingested_at STRING
+          precipitation_mm DOUBLE, wind_speed_kmh DOUBLE, forecast_date DATE,
+          ingested_at STRING
         ) USING DELTA
+        PARTITIONED BY (forecast_date)
     """)
     spark.sql(f"""
         MERGE INTO {table_name("silver")} AS target
@@ -124,6 +128,7 @@ def transform_silver(spark: SparkSession, run_id: str, metrics: dict | None = No
         WHEN MATCHED THEN UPDATE SET
           target.run_id = source.run_id,
           target.location_name = source.location_name,
+          target.forecast_date = source.forecast_date,
           target.temperature_c = source.temperature_c,
           target.humidity_pct = source.humidity_pct,
           target.precipitation_mm = source.precipitation_mm,

@@ -8,7 +8,7 @@ A modular Python-file project for Databricks. It fetches hourly weather forecast
 .github/workflows/deploy.yml
 resources/weather_job.yml
 src/weather_pipeline/
-  common/       # configuration, API client, schema drift checks, email helper
+  common/       # configuration, API client, shared table I/O, schema checks, email helper
   bronze/       # API ingestion and retry behavior
   silver/       # validation, quarantine, idempotent merge
   gold/         # daily aggregation and idempotent merge
@@ -63,14 +63,43 @@ If SMTP isn't configured, the pipeline logs the detailed warning, but cannot sen
 
 ## Testing locally
 
+From the repository root, create and activate a virtual environment and install the project with its development dependencies:
+
 ```powershell
 python -m venv .venv
-.\\.venv\\Scripts\\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
-pytest -v
 ```
 
-Unit tests cover pure validation, API response edge cases, retry behavior, and schema drift detection. Integration testing of Spark/Delta operations must be done in Databricks.
+Run all test files:
+
+```powershell
+python -m pytest -v
+```
+
+Run one test file at a time:
+
+```powershell
+python -m pytest -v tests/test_api_client.py
+python -m pytest -v tests/test_validation.py
+```
+
+To run one test function, provide its file and function name, for example:
+
+```powershell
+python -m pytest -v tests/test_api_client.py::test_fetch_forecast_retries_transient_api_failure_then_succeeds
+```
+
+Unit tests cover validation, API response edge cases, retry behavior, and schema drift detection. Integration testing of Spark/Delta operations must be done in Databricks.
+
+For a deterministic local start-to-finish pipeline run, install the Spark/Delta integration dependencies and run the fixture runner:
+
+```powershell
+python -m pip install -e ".[dev,integration]"
+python tests/run_test_data_pipeline.py
+```
+
+`tests/sample_data.json` contains the API input and expected Bronze, Silver, and Gold rows. The runner reads the API sample instead of making a network call, runs each real layer in sequence, and checks each table against the expected sample rows. It uses a temporary local warehouse. Java must be installed; Delta downloads its matching JVM packages on the first run. On Windows, also set `HADOOP_HOME` to a Hadoop native package matching the Hadoop version bundled with PySpark; it must contain `bin/hadoop.dll` and `bin/winutils.exe`. Linux and macOS do not need those Windows binaries.
 
 ## Dashboard queries
 
@@ -87,13 +116,30 @@ Never commit credentials.
 
 ## Deploy manually from PowerShell
 
+### Prerequisites
+
+- Python 3.10 or later and the Databricks CLI installed and available on `PATH`.
+- A Databricks workspace and a deployment identity with permission to create or update jobs and write to the configured Unity Catalog schemas.
+- A workspace URL and Databricks token for the workspace targeted by the deployment. Keep the token secret; do not commit it.
+
+Run these commands from the repository root. Set credentials for the workspace you are deploying to, then validate and deploy the selected bundle target. For example, for development:
+
 ```powershell
 $env:DATABRICKS_HOST = "https://<your-workspace-host>"
 $env:DATABRICKS_TOKEN = "<your-token>"
+$env:BUNDLE_VAR_notification_email = "<alert-recipient@example.com>"
 databricks bundle validate -t dev
 databricks bundle deploy -t dev
 databricks bundle run weather_pipeline_orchestrator -t dev
 ```
+
+Use the matching target for the environment: `dev`, `test`, or `prod`. Before deploying to `test` or `prod`, set `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, and `BUNDLE_VAR_notification_email` to values for that environment's workspace. The bundle target supplies its configured catalog schema and forecast defaults; optional `BUNDLE_VAR_api_url` and `BUNDLE_VAR_forecast_days` environment variables can override the endpoint and forecast length during deployment. Review `databricks.yml` before deploying if you need different target values.
+
+After deployment, check the Databricks Workflows page for the `weather_pipeline_orchestrator` run and inspect the audit tables for layer status and row counts. To deploy an update, run `databricks bundle validate -t <target>` and `databricks bundle deploy -t <target>` again. The bundle's daily schedule is configured in `resources/weather_job.yml`; `bundle run` starts an immediate run for verification.
+
+### Deploy through GitHub Actions
+
+The workflow in `.github/workflows/deploy.yml` runs tests on pull requests to `dev`, `test`, and `main`. A push to one of those branches runs tests, validates and deploys the corresponding target, then starts the orchestrator. A manually dispatched workflow lets you select a target. For each GitHub Environment (`dev`, `test`, and `prod`), configure `DATABRICKS_HOST` and `DATABRICKS_TOKEN` as environment secrets and `WEATHER_ALERT_EMAIL` as an environment variable. See [Multi-workspace deployment](#multi-workspace-deployment-dev--test--prod) for the branch-to-target mapping and initial setup.
 
 ## Pipeline dependency graph
 
@@ -117,6 +163,10 @@ If every selected city fails, Bronze fails and Silver/Gold do not run. If some c
 - `workspace.audit.weather_job_audit`
 
 The target schemas are `weather_api_dev`, `weather_api_test`, and `weather_api_prod`.
+
+## Shared Spark table I/O
+
+`weather_pipeline.common.data_io` provides `read_data` and `write_data` for registered Spark tables. Both take a data `format` and `table_name`. `schema_mode="merge"` enables Spark schema merging; `schema_mode="strict"` disables it. `write_data` also accepts `partitionby` as a column name or list of column names, and a separate `mode` argument (default `append`).
 
 ## Important
 
