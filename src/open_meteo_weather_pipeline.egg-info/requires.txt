@@ -1,8 +1,0 @@
-requests<3,>=2.31
-
-[dev]
-pytest<9,>=8
-pytest-mock<4,>=3.12
-requests-mock<2,>=1.11
-chispa<1,>=0.10
-coverage<8,>=7

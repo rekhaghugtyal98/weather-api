@@ -7,8 +7,6 @@ from ..common.data_io import read_data
 
 logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
 def build_gold(spark: SparkSession, run_id: str, metrics: dict | None = None) -> None:
     """Aggregate Silver weather observations into daily Gold metrics.
 
